@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 VERSION = "1.8.10.11"
-EXE = ROOT / "dist" / VERSION / "抖音视频下载器.exe"
+EXE = ROOT / "dist" / VERSION / "视频下载器.exe"
 
 if not EXE.exists():
     raise SystemExit(f"未找到产物：{EXE}")

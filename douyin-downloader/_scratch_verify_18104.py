@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-EXE = ROOT / "dist" / "抖音视频下载器.exe"
+EXE = ROOT / "dist" / "视频下载器.exe"
 
 from PyInstaller.archive.readers import CArchiveReader, ZlibArchiveReader
 

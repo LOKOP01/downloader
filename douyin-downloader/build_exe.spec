@@ -106,7 +106,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='抖音视频下载器',
+    name='视频下载器',
     icon=ICON_PATH,
     version=VERSION_FILE,
     debug=False,

@@ -1,11 +1,11 @@
-﻿; 抖音视频下载器 — Inno Setup 安装脚本
+﻿; 视频下载器 — Inno Setup 安装脚本
 ; 编译：installer\build_setup.ps1 或 ISCC.exe setup.iss
-; 产物：dist\抖音视频下载器-<version>-setup.exe
+; 产物：dist\视频下载器-<version>-setup.exe
 
-#define MyAppName "抖音视频下载器"
+#define MyAppName "视频下载器"
 #define MyAppVersion "1.8.10.11"
 #define MyAppPublisher "个人项目"
-#define MyAppExeName "抖音视频下载器.exe"
+#define MyAppExeName "视频下载器.exe"
 
 [Setup]
 AppId={{8F3C2A91-6D4E-4B7A-9C1E-2F5D8A0B4E73}
@@ -24,7 +24,7 @@ DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 DisableWelcomePage=no
 OutputDir=..\dist
-OutputBaseFilename=抖音视频下载器-{#MyAppVersion}-setup
+OutputBaseFilename=视频下载器-{#MyAppVersion}-setup
 SetupIconFile=..\assets\app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}

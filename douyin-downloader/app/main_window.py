@@ -87,7 +87,7 @@ class MainWindow(FluentWindow):
 
     def initWindow(self):
         self.resize(1100, 720)
-        self.setWindowTitle("抖音视频下载器")
+        self.setWindowTitle("视频下载器")
         self.setWindowIcon(app_icon())
         # Mica 云母特效需要持续采样桌面做模糊合成，在部分机器上是滚动卡顿的主因。
         # 默认关闭，设置页可手动开启（见 setting_interface）。

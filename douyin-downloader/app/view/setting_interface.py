@@ -398,7 +398,7 @@ class SettingInterface(ScrollArea):
         group = SettingCardGroup("关于", self.view)
         card = HyperlinkCard(
             "https://github.com/VideoData/DY-Data",
-            "功能参考", FIF.GITHUB, f"抖音视频下载器 v{__version__}",
+            "功能参考", FIF.GITHUB, f"视频下载器 v{__version__}",
             "功能设计参考 VideoData/DY-Data；界面风格参考 moesnow/March7thAssistant",
             group)
         group.addSettingCard(card)

@@ -8,7 +8,7 @@
   · Qt 槽函数里的异常（PySide6 走 sys.excepthook，同上）
 
 单文件 2MB，保留 3 个历史文件，不会无限长大。
-程序目录不可写时退回 `%LOCALAPPDATA%/抖音视频下载器/logs`。
+程序目录不可写时退回 `%LOCALAPPDATA%/视频下载器/logs`。
 """
 import logging
 import os
@@ -102,7 +102,7 @@ def _pick_dir(base_dir: str) -> str:
         candidates.append(os.path.join(base_dir, "logs"))
     local = os.environ.get("LOCALAPPDATA")
     if local:
-        candidates.append(os.path.join(local, "抖音视频下载器", "logs"))
+        candidates.append(os.path.join(local, "视频下载器", "logs"))
     for d in candidates:
         if _writable(d):
             return d

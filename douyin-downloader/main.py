@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""抖音视频下载器 —— 入口
+"""视频下载器 —— 入口
 
 功能设计参考 VideoData/DY-Data（链接解析、去水印、批量下载）
 界面风格参考 moesnow/March7thAssistant（PySide6 + Fluent Widgets）
@@ -29,7 +29,7 @@ def main():
         Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 
     app = QApplication(sys.argv)
-    app.setApplicationName("抖音视频下载器")
+    app.setApplicationName("视频下载器")
     app.setOrganizationName("DouyinDownloader")
 
     from app.core.config import Config
