@@ -1,0 +1,462 @@
+package com.xd.vdl.ui
+
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.xd.vdl.BuildConfig
+import com.xd.vdl.core.Platform
+import com.xd.vdl.core.SaveSettings
+import com.xd.vdl.core.net.CookieStore
+import com.xd.vdl.core.net.Http
+
+@Composable
+fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
+    val ctx = LocalContext.current
+    // 保存/清除 Cookie 后自增，驱动下面重新读一次登录态
+    val epoch by vm.loginEpoch.collectAsState()
+
+    val platforms = remember { Platform.values().filter { it != Platform.UNKNOWN } }
+    val status = remember(epoch) {
+        platforms.associateWith { p ->
+            val ck = Http.cookieFor(p)
+            LoginStatus(ck, CookieStore.authKeysOf(p).filter { CookieStore.has(ck, it) })
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+    ) {
+        Text(
+            "设置",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(16.dp))
+
+        Card(Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(1.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("登录", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "从电脑浏览器取 Cookie 填入即可，Cookie 只保存在本机，" +
+                        "下次打开无需重填。高清晰度、受限内容需要对应平台的登录态。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(14.dp))
+
+                platforms.forEachIndexed { i, p ->
+                    val st = status[p] ?: LoginStatus("", emptyList())
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(p.label, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (st.loggedIn) "已登录 · ${st.hit.joinToString("/")}"
+                                else if (st.hasCookie) "已填 Cookie（未见登录凭证）"
+                                else "未登录",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (st.loggedIn) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        TextButton(onClick = { onEditCookie(p) }) {
+                            Text(if (st.hasCookie) "修改" else "填写 Cookie")
+                        }
+                        if (st.hasCookie) {
+                            TextButton(onClick = {
+                                CookieStore.clear(ctx, p)
+                                vm.refreshLogin()
+                                vm.notify("已清除 ${p.label} 的 Cookie")
+                            }) { Text("清除") }
+                        }
+                    }
+                    if (i < platforms.size - 1) {
+                        Spacer(Modifier.height(6.dp))
+                        HorizontalDivider()
+                        Spacer(Modifier.height(6.dp))
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        SaveLocationCard(vm)
+
+        Spacer(Modifier.height(14.dp))
+
+        Card(Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(1.dp)) {
+            Column(Modifier.padding(16.dp)) {
+                Text("关于", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                InfoLine("视频位置", SaveSettings.previewVideo(ctx))
+                InfoLine("图片位置", SaveSettings.previewImage(ctx))
+                InfoLine("压缩包位置", SaveSettings.previewArchive(ctx))
+                InfoLine("支持平台", "抖音 / B站 / X / 小红书 / Instagram / 禁漫")
+                InfoLine(
+                    "版本",
+                    "${BuildConfig.VERSION_NAME}（build ${BuildConfig.VERSION_CODE}）",
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 下载位置设置卡。
+ *
+ * 只让用户改**末级文件夹名**，前缀（Movies / Pictures / Download）由系统定：
+ * Android 10+ 往公共目录写文件必须走 MediaStore，而 MediaStore 只认相对路径，
+ * 前缀决定了系统按哪种媒体类型归档 —— 换掉它图库就扫不到，反而更难找。
+ *
+ * 目录名一律经 [SaveSettings.sanitize] 过滤：混进 `/` 会拼出多级路径，
+ * 混进 `..` 可能越权写别处。保存时立刻回显过滤后的结果，让用户看得见。
+ */
+@Composable
+private fun SaveLocationCard(vm: AppViewModel) {
+    val ctx = LocalContext.current
+    // 保存后自增，触发重新读一遍（三个输入框的初值跟着走）
+    var epoch by remember { mutableStateOf(0) }
+
+    Card(Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(1.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text("下载位置", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "只改末级文件夹名即可，前面的大类目录（视频 / 图片 / 下载）由系统决定。" +
+                    "视频与图片会归入相册对应分类，压缩包放在下载目录。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(12.dp))
+
+            DirField(
+                key = "video",
+                epoch = epoch,
+                label = "视频",
+                prefix = "Movies /",
+                initial = SaveSettings.videoDir(ctx),
+                onSave = { SaveSettings.setVideoDir(ctx, it); vm.notify("视频位置已更新") },
+                onChanged = { epoch += 1 },
+            )
+            Spacer(Modifier.height(10.dp))
+            DirField(
+                key = "image",
+                epoch = epoch,
+                label = "图片",
+                prefix = "Pictures /",
+                initial = SaveSettings.imageDir(ctx),
+                onSave = { SaveSettings.setImageDir(ctx, it); vm.notify("图片位置已更新") },
+                onChanged = { epoch += 1 },
+            )
+            Spacer(Modifier.height(10.dp))
+            DirField(
+                key = "archive",
+                epoch = epoch,
+                label = "压缩包",
+                prefix = "Download /",
+                initial = SaveSettings.archiveDir(ctx),
+                onSave = { SaveSettings.setArchiveDir(ctx, it); vm.notify("压缩包位置已更新") },
+                onChanged = { epoch += 1 },
+            )
+
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "已下载的文件不会移动，改动只对之后的新任务生效。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = {
+                    SaveSettings.reset(ctx)
+                    epoch += 1
+                    vm.notify("已恢复默认位置")
+                }) { Text("恢复默认") }
+            }
+        }
+    }
+}
+
+/**
+ * 一行目录名编辑：前缀只读、末级可改，回车或失焦时保存。
+ *
+ * 不用「保存按钮」是因为三类目录各配一个按钮太啰嗦；`onFocusChanged` 触发提交，
+ * 但对齐输入框用了 `key(epoch)` 重建 —— 保存后要把 sanitize 的结果回显出来。
+ */
+@Composable
+private fun DirField(
+    key: String,
+    epoch: Int,
+    label: String,
+    prefix: String,
+    initial: String,
+    onSave: (String) -> Unit,
+    onChanged: () -> Unit,
+) {
+    var text by remember(key, epoch) { mutableStateOf(initial) }
+    var bad by remember(key, epoch) { mutableStateOf(false) }
+
+    // 提交：过滤后为空说明用户把名字清空了（或输入的全是非法字符），拒绝并回退
+    fun commit() {
+        val clean = SaveSettings.sanitize(text)
+        if (clean.isEmpty()) {
+            bad = true
+            return
+        }
+        bad = false
+        if (clean != text) text = clean
+        if (clean != initial) {
+            onSave(clean)
+            onChanged()
+        }
+    }
+
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                prefix,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.width(6.dp))
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it; bad = false },
+                modifier = Modifier.weight(1f),
+                label = { Text(label) },
+                isError = bad,
+                singleLine = true,
+                supportingText = if (bad) {
+                    { Text("不能为空，也不能只有符号") }
+                } else null,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = { commit() }) { Text("保存") }
+        }
+    }
+}
+
+/** 一个平台的登录态快照：有没有 Cookie、命中了哪些登录凭证 */
+private data class LoginStatus(val cookie: String, val hit: List<String>) {
+    val hasCookie: Boolean get() = cookie.isNotEmpty()
+    val loggedIn: Boolean get() = hit.isNotEmpty()
+}
+
+@Composable
+private fun InfoLine(k: String, v: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(
+            k,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(v, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/**
+ * Cookie 登录弹窗：按平台逐项填写（与桌面版 `app/view/cookie_dialog.py` 同一套做法）。
+ *
+ * 每一项一个独立输入框，已保存的值会预填 —— 只改其中一项不会动到别的。
+ * 懒得逐项填时可以点「从剪贴板填充」：把整串 Cookie 复制好，会按名字自动分到各字段；
+ * 认不出的项（抖音的 tt_scid、odin_tt 之类）也保留下来一并保存，提高接口通过率。
+ */
+@Composable
+fun LoginDialog(
+    platform: Platform,
+    onSaved: (CookieStore.SaveResult) -> Unit,
+    onClose: () -> Unit,
+) {
+    val ctx = LocalContext.current
+    val fields = remember(platform) { CookieStore.fieldsOf(platform) }
+    val fieldNames = remember(fields) { fields.map { it.name }.toSet() }
+
+    // 已保存的值拆成两半：字段表里的预填进输入框，其余留着一起保存
+    val saved = remember(platform) { CookieStore.split(CookieStore.get(platform)) }
+    val values = remember(platform) {
+        mutableStateMapOf<String, String>().apply {
+            fields.forEach { f -> put(f.name, saved[f.name].orEmpty()) }
+        }
+    }
+    var extra by remember(platform) { mutableStateOf(saved.filterKeys { it !in fieldNames }) }
+    var tip by remember(platform) { mutableStateOf("") }
+    var error by remember(platform) { mutableStateOf("") }
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Card(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(20.dp),
+            ) {
+                Text(
+                    "登录 ${platform.label}",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "在电脑浏览器登录 ${platform.label} 后，F12 → Application（应用程序）→ Cookies，" +
+                        "对着列表把下面各项逐个填进来。只需要填必填项。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "登录凭证多是 HttpOnly，控制台里的 document.cookie 取不到，" +
+                        "得在上面那个面板里找。",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(10.dp))
+
+                OutlinedButton(onClick = {
+                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    val raw = cm.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+                    val parsed = CookieStore.parse(raw)
+                    if (parsed.isEmpty()) {
+                        error = "剪贴板里没识别到 Cookie，先复制好整串再点"
+                        tip = ""
+                        return@OutlinedButton
+                    }
+                    val kv = CookieStore.split(parsed)
+                    fields.forEach { f -> kv[f.name]?.let { values[f.name] = it } }
+                    extra = kv.filterKeys { it !in fieldNames }
+                    error = ""
+                    val n = fields.count { !values[it.name].isNullOrEmpty() }
+                    tip = "已填入 $n 个字段" +
+                        (if (extra.isNotEmpty()) "，另有 ${extra.size} 项其他 Cookie 会一并保存" else "") +
+                        "，核对后保存"
+                }) { Text("从剪贴板填充") }
+
+                if (tip.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        tip,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                if (error.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
+                Column(
+                    Modifier
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                    fields.forEach { f ->
+                        OutlinedTextField(
+                            value = values[f.name].orEmpty(),
+                            onValueChange = {
+                                values[f.name] = it
+                                error = ""
+                                tip = ""
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = {
+                                Text(f.name + if (f.required) "（必填）" else "（可选）")
+                            },
+                            supportingText = { Text(f.hint) },
+                            singleLine = true,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    if (extra.isNotEmpty()) {
+                        Text(
+                            "另有 ${extra.size} 项其他 Cookie 会一并保留：" +
+                                extra.keys.take(4).joinToString("/") +
+                                if (extra.size > 4) " 等" else "",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onClose) { Text("取消") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = {
+                        val missing = fields.filter {
+                            it.required && values[it.name].orEmpty().isBlank()
+                        }
+                        if (missing.isNotEmpty()) {
+                            error = "还差必填项：" + missing.joinToString("、") { it.name }
+                            tip = ""
+                            return@Button
+                        }
+                        val r = CookieStore.saveFields(ctx, platform, values.toMap(), extra)
+                        if (!r.ok) {
+                            error = "没有可保存的内容"
+                            return@Button
+                        }
+                        onSaved(r)
+                    }) { Text("保存") }
+                }
+            }
+        }
+    }
+}

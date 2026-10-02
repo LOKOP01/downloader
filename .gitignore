@@ -1,0 +1,109 @@
+# ============================================================
+#  抖音视频下载器 — Git 忽略规则
+#  原则：只提交源码，不提交构建产物 / 大文件 / 敏感数据
+# ============================================================
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg
+
+# ---------- 打包 / 构建产物 ----------
+# PyInstaller 输出（dist 里是几百 MB 的 exe，GitHub 会拒收）
+build/
+dist/
+*.pkg
+*.spec.bak
+
+# ---------- Android / Gradle ----------
+.gradle/
+.kotlin/
+local.properties
+android/app/build/
+android/build/
+*.apk
+*.aab
+*.ap_
+*.dex
+*.keystore
+*.jks
+captures/
+
+# ---------- 安装包 / 二进制 ----------
+*.exe
+*.msi
+*.dmg
+*.AppImage
+*.pdb
+*.dll
+*.so
+*.dylib
+
+# ---------- 敏感数据（绝不公开）----------
+# Edge 浏览器用户配置：含 cookie / 登录态
+edge_profile/
+# 浏览器调试配置
+browser_profile/
+# 密钥 / 凭据
+*.key
+*.pem
+cookies*.json
+cookie*.txt
+config.local.json
+
+# ---------- AI 工具目录 ----------
+.workbuddy/
+.workbuddy-ai/
+.impeccable.md
+
+# ---------- 临时探测 / 调试脚本 ----------
+_scratch_x_probe/
+_scratch_*/
+_tmp/
+*.tmp
+*.bak
+
+# ---------- 构建与调试日志 ----------
+*.log
+_build_*.txt
+_install_*.txt
+_verify_*.txt
+_setup_*.txt
+_runcheck_*.txt
+prebuild*.txt
+iscc*.txt
+sync_*.txt
+swap_exe.txt
+which_build.txt
+launch_check.txt
+relaunch_check.txt
+install_*.txt
+cleanup_batch*.txt
+
+# ---------- 探测用截图 / 素材 ----------
+_*.png
+_*.jpg
+_*.jpeg
+_*.webp
+_*.mp4
+_*.zip
+_*.html
+_*.json
+_*.xml
+_*.txt
+
+# ---------- 系统 ----------
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp
+*~

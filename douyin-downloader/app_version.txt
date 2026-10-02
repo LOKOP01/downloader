@@ -1,0 +1,33 @@
+﻿# UTF-8
+#
+# exe 版本资源：右键「属性 → 详细信息」中展示的信息
+#
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(1, 8, 10, 11),
+    prodvers=(1, 8, 10, 11),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          u'080404b0',
+          [StringStruct(u'CompanyName', u'个人项目'),
+           StringStruct(u'FileDescription', u'抖音 / X / Instagram / B站 / 小红书 / Iwara / Pornhub / hanime1 / 禁漫 下载器'),
+           StringStruct(u'FileVersion', u'1.8.10.11'),
+           StringStruct(u'InternalName', u'douyin-downloader'),
+           StringStruct(u'LegalCopyright', u'仅供个人学习与备份使用'),
+           StringStruct(u'OriginalFilename', u'抖音视频下载器.exe'),
+           StringStruct(u'ProductName', u'抖音视频下载器'),
+           StringStruct(u'ProductVersion', u'1.8.10.11')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [2052, 1200])])
+  ]
+)
+

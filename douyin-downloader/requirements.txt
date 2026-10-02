@@ -1,0 +1,18 @@
+# 运行依赖
+PySide6>=6.6.0
+PySide6-Fluent-Widgets>=1.5.0
+PySideSix-Frameless-Window>=0.4.0
+requests>=2.31.0
+playwright>=1.40.0
+
+# 打包依赖（PyInstaller 生成 exe 时需要）
+pyinstaller>=6.0.0
+
+# 说明：
+# - playwright 运行时使用本机 Edge（channel="msedge"），
+#   无需执行 `playwright install chromium`。
+# - 音视频合并（B 站 DASH）由程序内置的 ffmpeg 组件负责，
+#   可从「设置 → 合并组件（ffmpeg）」下载，不是 pip 依赖。
+
+# 禁漫天堂（本子解析/下载，图片自动解码）
+jmcomic>=2.7.0

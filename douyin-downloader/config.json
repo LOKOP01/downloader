@@ -1,0 +1,10 @@
+{
+  "download_path": "F:/IDM/movie",
+  "cookie": "",
+  "naming_rule": "timestamp",
+  "max_concurrent": 3,
+  "theme": "dark",
+  "create_author_folder": true,
+  "download_cover": false,
+  "timeout": 15
+}
