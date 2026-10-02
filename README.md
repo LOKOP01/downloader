@@ -1,28 +1,22 @@
 # 视频下载器
 
-个人自用的多站点视频 / 图片下载工具，包含 **Windows 桌面端** 和 **Android 端** 两个实现。
+个人自用的多站点视频 / 图片下载工具，分 Windows 桌面端（Python + PySide6）和 Android 端（Kotlin + Compose）。
 
-从浏览器或手机里看到想留存的视频，把链接粘进来就能拿到最高画质的文件，支持批量抓取某个作者的全部作品。
-
-> 仅供个人学习与备份使用。请遵守各平台的服务条款，不要用于商业用途或二次分发。
-
----
+仅供个人学习与备份使用。
 
 ## 支持的站点
 
-| 站点 | 链接解析 | 去水印 | 批量 / 作者主页 | 备注 |
-|---|:---:|:---:|:---:|---|
-| 抖音 | ✅ | ✅ | ✅ | |
-| B 站 | ✅ | — | ✅ | DASH 音视频自动合并 |
-| 小红书 | ✅ | ✅ | ✅ | 需用 App 分享的链接（含 `xsec_token`） |
-| X (Twitter) | ✅ | — | ✅ | 敏感内容推文需填 `auth_token` / `ct0` |
-| Instagram | ✅ | — | ✅ | 需登录的内容要填 Cookie |
-| Iwara | ✅ | — | ✅ | |
-| Pornhub | ✅ | — | ✅ | |
-| hanime1 | ✅ | — | ✅ | |
-| 禁漫天堂 | ✅ | — | ✅ | 图片自动解码（AVS 混淆） |
-
----
+| 站点 | 说明 |
+|---|---|
+| 抖音 | 去水印、作者主页批量 |
+| B 站 | DASH 音视频自动合并 |
+| 小红书 | 需用 App 分享的链接（含 `xsec_token`） |
+| X (Twitter) | 敏感内容推文需填 `auth_token` / `ct0` |
+| Instagram | 需登录的内容要填 Cookie |
+| Iwara | |
+| Pornhub | |
+| hanime1 | |
+| 禁漫天堂 | 图片自动解码（AVS 混淆） |
 
 ## 目录结构
 
@@ -57,17 +51,15 @@
         └── ui/                 # Compose 界面
 ```
 
-> **注意**：仓库只提交源码。`dist/`、`build/`、`.venv/`、`edge_profile/`、`*.exe`、`*.apk` 等构建产物和敏感目录均已通过 `.gitignore` 排除，需要自行构建。
-
----
+仓库只提交源码。`dist/`、`build/`、`.venv/`、`edge_profile/`、`*.exe`、`*.apk` 等构建产物和敏感目录都在 `.gitignore` 里，需要自行构建。
 
 ## 桌面端
 
 ### 环境要求
 
 - Windows 10 / 11
-- Python 3.10+（开发时使用 3.13）
-- 本机已安装 Microsoft Edge（Playwright 直接调用本机 Edge，**无需** `playwright install chromium`）
+- Python 3.10+（开发时用 3.13）
+- 本机已安装 Microsoft Edge。Playwright 直接调用本机 Edge，不需要 `playwright install chromium`
 
 ### 安装依赖
 
@@ -84,7 +76,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-或直接双击 `run.bat`（它用 `pythonw.exe` 启动，不弹控制台窗口）。
+或双击 `run.bat`（用 `pythonw.exe` 启动，不弹控制台窗口）。
 
 ### 打包成 exe
 
@@ -94,13 +86,13 @@ pyinstaller build_exe.spec
 
 产物在 `dist/` 下。安装包用 `installer/setup.iss` 配合 Inno Setup 编译。
 
-### 使用要点
+### 使用
 
-1. 粘一条链接 → 程序自动识别站点并解析 → 选择画质 → 下载。
-2. 下载完成后可自动把文件复制到剪贴板（配置项 `auto_copy_file`），直接粘贴到别处即可。
-3. 需要登录的站点（X / Instagram / 小红书 / 禁漫），在设置页填写 Cookie，或用内置的浏览器登录流程自动导出。
-4. B 站 DASH 流需要 ffmpeg 合并 —— 在「设置 → 合并组件（ffmpeg）」里下载，不是 pip 依赖。
-5. 解析失败或下载卡住时，看 `logs/app.log` 定位。
+1. 粘链接，程序识别站点并解析，选画质，下载。
+2. 下载完成后可自动复制文件到剪贴板（配置项 `auto_copy_file`）。
+3. 需要登录的站点（X / Instagram / 小红书 / 禁漫）在设置页填 Cookie，或用内置的浏览器登录流程导出。
+4. B 站 DASH 合并需要 ffmpeg，在「设置 → 合并组件（ffmpeg）」里下载，不是 pip 依赖。
+5. 解析失败或下载卡住，看 `logs/app.log`。
 
 ### 配置文件 `config.json`
 
@@ -128,9 +120,7 @@ pyinstaller build_exe.spec
 }
 ```
 
-> `config.json` 里会存 Cookie，**不要**把它提交到公开仓库。
-
----
+`config.json` 里会存 Cookie，不要提交到公开仓库。
 
 ## Android 端
 
@@ -155,21 +145,19 @@ cd android
 
 APK 输出在 `android/app/build/outputs/apk/`。
 
-### 使用要点
+### 使用
 
-- 主要入口是**系统分享**：在抖音 / B 站 / 小红书等 App 里点「分享 → 视频下载器」，自动解析并开始下载。
-- 界面用 Compose 写，支持首页、任务列表、设置三个页面。
+- 主要入口是系统分享：在抖音 / B 站 / 小红书等 App 里点「分享 → 视频下载器」。
+- 界面是 Compose，分首页、任务列表、设置三页。
 - 下载完成后通过 MediaStore 导出到系统相册。
-- Cookie 按平台分别存储（`CookieStore`），与桌面端是同一套填写方式。
+- Cookie 按平台分开存，与桌面端是同一套填写方式。
 
----
+## 几点说明
 
-## 已知说明
+- Cookie 在桌面端明文存在 `config.json`，安卓端存在 `SharedPreferences`（`vdl_cookies`），都不加密。
+- 桌面端用 Playwright 驱动本机 Edge 时会生成 `edge_profile/`，里面是登录态，已在 `.gitignore` 排除。
+- `JmClient.kt` / `jmcomic_bridge.py` 里的 `SECRET`（如 `185Hcomic3PAPP7R`）是该 App 通信协议的公开逆向常量，不是个人凭据。
 
-- **Cookie 存储**：桌面端明文存在 `config.json`，安卓端存在 `SharedPreferences`（`vdl_cookies`）。两者都不加密，属个人自用工具的取舍。
-- **`edge_profile/`**：桌面端用 Playwright 驱动本机 Edge 时会生成用户配置目录，内含登录态，已在 `.gitignore` 中排除。
-- **禁漫协议常量**：`JmClient.kt` / `jmcomic_bridge.py` 中的 `SECRET`（如 `185Hcomic3PAPP7R`）是该 App 通信协议的公开逆向常量，非个人凭据。
+## 免责
 
-## 免责声明
-
-本项目为个人学习与备份用途，所有解析能力均来自各平台公开的网页接口。使用者需自行承担因下载、存储、传播内容而产生的一切责任，请勿用于侵犯版权或违反平台服务条款的场景。
+个人学习与备份用途，解析能力都来自各平台公开的网页接口。下载、存储、传播内容的责任由使用者自负。
