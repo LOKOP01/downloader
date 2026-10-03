@@ -59,6 +59,9 @@ browser_profile/
 cookies*.json
 cookie*.txt
 config.local.json
+# 运行时配置：源码运行时 config.json 就写在项目根目录，里面明文存 Cookie。
+# 忽略掉，避免登录一次之后整份凭据被误提交（默认值在 core/config.py 里）。
+douyin-downloader/config.json
 
 # ---------- AI 工具目录 ----------
 .workbuddy/
