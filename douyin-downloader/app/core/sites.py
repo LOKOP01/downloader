@@ -2504,13 +2504,14 @@ def parse_iwara(url: str) -> VideoInfo:
     # 只探主地址：同一档位的主/备地址是同一个文件，多探一轮纯属浪费
     sizes = _iwara_probe_sizes([u for _lab, u in options])
     if sizes:
-        info.quality_sizes.update(sizes)
-        # 同一档位的主/备地址大小应当一致：备用地址缺大小时用主地址补齐
+        # 同一档位的主/备地址是同一个文件：备用地址缺大小时用主地址补齐。
+        # 必须先补完再 update —— update 是值拷贝，之后再改 sizes 就写不进去了。
         for main_url, extras in backups.items():
             n = sizes.get(main_url) or 0
             if n > 0:
                 for u in extras:
                     sizes.setdefault(u, n)
+        info.quality_sizes.update(sizes)
     return info
 
 

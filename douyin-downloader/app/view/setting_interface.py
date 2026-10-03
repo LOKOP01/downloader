@@ -253,10 +253,14 @@ class SettingInterface(ScrollArea):
             self._refresh_account_state()
 
     def _refresh_account_state(self):
-        """登录态：浏览器持久化 profile 优先，手填 Cookie 次之"""
+        """登录态：浏览器持久化 profile 优先，手填 Cookie 次之
+
+        profile 侧按平台凭据名去 Cookie 库里核对（不能只看 profile 目录在不在，
+        见 account_card.profile_logged_in）。
+        """
         cfg = self.ctx.config
         for key, (card, cfg_key, token, profile_attr) in self.accountCards.items():
-            logged = profile_logged_in(getattr(cfg, profile_attr, "") or "")
+            logged = profile_logged_in(getattr(cfg, profile_attr, "") or "", token)
             filled = token in (cfg.get(cfg_key, "") or "")
             if logged:
                 card.set_state(STATE_LOGIN)

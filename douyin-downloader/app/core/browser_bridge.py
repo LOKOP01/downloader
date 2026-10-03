@@ -104,9 +104,12 @@ def login_xiaohongshu(profile_dir: str, timeout: int = 300) -> Tuple[bool, str]:
 
     小红书解析本身免登录可用（SSR 内联数据），登录后能拿到更稳的
     xsec_token、以及部分仅登录可见的笔记。
+
+    判据只认 `web_session`：`a1` / `webId` 是游客态就会种下的设备 Cookie，
+    拿它们当「已登录」会让登录窗口刚打开就立刻报成功（用户还没扫码）。
     """
     return login_site(profile_dir, "https://www.xiaohongshu.com/explore",
-                      ("web_session", "a1", "webId"), timeout)
+                      ("web_session",), timeout)
 
 
 

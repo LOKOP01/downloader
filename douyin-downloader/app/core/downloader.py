@@ -206,7 +206,10 @@ class DownloadManager(QObject):
 
     def _path_in_use(self, save_path: str) -> bool:
         with self._lock:
-            return any(t.save_path == save_path and t.status in ("等待中", "下载中")
+            # 「合并中」的 DASH 任务此刻还没写出成品，但最终目标就是 save_path，
+            # ffmpeg 会直接往那儿写；漏掉它会让同一秒的第二次下载复用同一路径。
+            return any(t.save_path == save_path
+                       and t.status in ("等待中", "下载中", "合并中")
                        for t in self._tasks.values())
 
     def cancel(self, task_id: str):
@@ -767,6 +770,24 @@ class DownloadManager(QObject):
             mode = "ab"
         with requests.get(url, headers=headers, stream=True,
                           timeout=HTTP_TIMEOUT) as resp:
+            if mode == "ab" and resp.status_code == 416:
+                # 本地残片已经不小于服务端资源。常见于「上次其实写完了、只是没
+                # 走到 os.replace 就被中断」——此时 Range 起点越界，若直接
+                # raise_for_status 会判整单失败，而且重试还是 416，永远下不完。
+                # 416 的 Content-Range 形如 `bytes */12345`，能读到总长且与本地
+                # 长度一致就说明残片完整，直接收尾；否则残片不可信，丢弃重下。
+                total_hint = content_range_total(
+                    resp.headers.get("Content-Range", ""))
+                if total_hint and downloaded == total_hint:
+                    log.info("本地残片已完整（%s 字节），直接收尾 %s",
+                             downloaded, os.path.basename(tmp_path))
+                    return downloaded
+                resp.close()
+                self._discard_partial(tmp_path, meta_path)
+                info.downloaded = base_done
+                log.warning("续传被拒（HTTP 416），丢弃残片重下：%s",
+                            os.path.basename(tmp_path))
+                raise IncompleteDownload("服务端拒绝续传（HTTP 416），已重新下载")
             resp.raise_for_status()
             log.info("请求 %s 返回 %s | 目标 %s | 续传自 %s | Content-Length=%s",
                      url[:150], resp.status_code, os.path.basename(tmp_path),
@@ -949,17 +970,18 @@ class DownloadManager(QObject):
             except subprocess.TimeoutExpired:
                 # 合并卡死不能把任务永远挂住：超时直接判失败并清掉半成品
                 self._cleanup_temp_files(info.save_path)
-                try:
-                    os.remove(info.save_path)
-                except OSError:
-                    pass
+                self._discard_partial(info.save_path)
                 raise ValueError(f"ffmpeg 合并超过 {FFMPEG_TIMEOUT}s 未结束，已中止")
             log.info("合并结束 %s：返回码 %s 用时 %.1fs%s", info.task_id,
                      proc.returncode, time.time() - t_merge,
                      (" stderr=" + (proc.stderr or "").strip()[:300])
                      if proc.returncode != 0 else "")
             if proc.returncode != 0 or not os.path.exists(info.save_path):
+                # 失败时 ffmpeg 往往已经在目标路径留下一个截断的 mp4，文件名却
+                # 和正常成品一模一样 —— 不删掉，用户会以为下全了（要等到重试
+                # 才会被覆盖）。超时分支同样处理，两处保持一致。
                 self._cleanup_temp_files(info.save_path)
+                self._discard_partial(info.save_path)
                 raise ValueError(f"ffmpeg 合并失败：{(proc.stderr or '')[:150]}")
             self._cleanup_temp_files(info.save_path)
             info.downloaded = info.total or (v_got + a_got)

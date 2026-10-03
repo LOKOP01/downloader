@@ -12,6 +12,7 @@
   - 已填 Cookie 配置里存了 Cookie 字符串（手填或登录时自动导出）
 """
 import os
+import sqlite3
 
 from PySide6.QtCore import Qt, Signal
 
@@ -24,15 +25,43 @@ STATE_LOGIN = "login"
 STATE_COOKIE = "cookie"
 
 
-def profile_logged_in(profile_dir: str) -> bool:
-    """浏览器 profile 目录里存在登录态。
+def profile_logged_in(profile_dir: str, cookie_name: str = "") -> bool:
+    """浏览器 profile 里是否真的存着该平台的登录 Cookie。
 
-    Edge 的持久化 profile 一定含 Default 子目录，比 listdir 便宜也更可靠
-    （登录过一次就会创建，空目录则不算）。
+    早先只看 `<profile>/Default` 目录在不在 —— 但 Chromium **首次启动就会
+    创建**它，于是「点开登录窗口又直接关掉（没登录）」也会被判成「已登录」，
+    设置页于是和真实状态对不上。
+
+    改为直接查 Chromium 的 Cookie 库（SQLite）：名字与域名字段是明文，只有
+    值加密，按名字就能确认登录凭证在不在。库读不到（被占用、路径变了、从没
+    登录过）时保守返回 False —— 宁可显示「未配置」，也不骗用户说已登录。
+
+    Edge 131 起库在 `Default/Network/Cookies`，更早的版本在 `Default/Cookies`。
     """
-    if not profile_dir:
+    if not profile_dir or not cookie_name:
         return False
-    return os.path.isdir(os.path.join(profile_dir, "Default"))
+    default = os.path.join(profile_dir, "Default")
+    if not os.path.isdir(default):
+        return False
+    for path in (os.path.join(default, "Network", "Cookies"),
+                 os.path.join(default, "Cookies")):
+        if not os.path.isfile(path):
+            continue
+        try:
+            # 只读打开：绝不在用户目录里创建文件；被占用时最多等 1 秒
+            con = sqlite3.connect(
+                f"file:{path.replace(chr(92), '/')}?mode=ro", uri=True, timeout=1.0)
+        except sqlite3.Error:
+            continue
+        try:
+            row = con.execute("SELECT 1 FROM cookies WHERE name = ? LIMIT 1",
+                              (cookie_name,)).fetchone()
+        except sqlite3.Error:
+            continue
+        finally:
+            con.close()
+        return row is not None
+    return False
 
 
 class AccountCard(SettingCard):

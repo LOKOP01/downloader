@@ -302,7 +302,8 @@ class BatchInterface(ScrollArea):
                 for i, url in enumerate(info.image_urls, 1):
                     ext = ".webp" if "webp" in url else ".jpeg"
                     self.ctx.manager.add(url, os.path.join(folder, f"{i:02d}{ext}"),
-                                         f"{info.safe_title(30)}_{i:02d}{ext}")
+                                         f"{info.safe_title(30)}_{i:02d}{ext}",
+                                         cookies=task_cookies)
                     n += 1
             elif info.play_url:
                 self.ctx.manager.add(

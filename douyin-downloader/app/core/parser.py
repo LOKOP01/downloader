@@ -77,9 +77,13 @@ class DouyinParser:
     @staticmethod
     def parse_ids(url: str) -> Tuple[str, str]:
         """从最终 URL 解析 (类型, 作品ID/用户sec_uid)。类型: video/note/user"""
-        # 用户主页
+        # 用户主页：带 sec_uid 查询参数的，或 sec_uid 本身以 MS4 开头（抖音的
+        # sec_uid 前缀）。这里必须写成 `m and (...)` —— 原先的
+        # `m and A or B` 会被解析成 `(m and A) or B`，B 命中而 m 为 None 时
+        # 会在 m.group(1) 上抛 AttributeError（当前靠正则包含关系侥幸不触发）。
         m = re.search(r'/user/([A-Za-z0-9_-]+)', url)
-        if m and "sec_uid" in urllib.parse.urlparse(url).query or re.search(r'/user/MS4', url):
+        if m and ("sec_uid" in urllib.parse.urlparse(url).query
+                  or m.group(1).startswith("MS4")):
             return "user", m.group(1)
         # modal_id=xxxx
         q = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)

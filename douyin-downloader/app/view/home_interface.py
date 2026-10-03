@@ -430,12 +430,18 @@ class HomeInterface(ScrollArea):
             pages = (info.extra or {}).get("pages") or "?"
             self._toast("已加入队列", f"禁漫本子共 {pages} 页，开始下载", "success")
             return
+        # 只有 IG / B站 的 CDN 需要登录态 Cookie。图集也要带：IG 多图的图挂在
+        # cdninstagram.com 上，漏传会 403（此前只有视频分支带，图集需要登录时必挂）
+        task_cookies = (SiteContext.from_config(cfg).cookie_for(info.source)
+                        if needs_cookie_for_source(info.source) else "")
         if info.is_image:
             folder = os.path.join(base, fname)
             for i, url in enumerate(info.image_urls, 1):
                 ext = ".webp" if "webp" in url else ".jpeg"
                 path = os.path.join(folder, f"{i:02d}{ext}")
-                self.ctx.manager.add(url, path, f"{info.safe_title(30)}_{i:02d}{ext}")
+                self.ctx.manager.add(url, path,
+                                     f"{info.safe_title(30)}_{i:02d}{ext}",
+                                     cookies=task_cookies)
             self._toast("已加入队列", f"图集共 {len(info.image_urls)} 张图片，开始下载", "success")
         else:
             # 取用户选择的清晰度（默认最高档）
@@ -452,9 +458,6 @@ class HomeInterface(ScrollArea):
             chosen = (options[idx][0] if options and 0 <= idx < len(options)
                       else "最高画质")
             path = os.path.join(base, fname + ".mp4")
-            # 只有 IG / B站 的 CDN 需要登录态 Cookie
-            task_cookies = (SiteContext.from_config(cfg).cookie_for(info.source)
-                            if needs_cookie_for_source(info.source) else "")
             task = self.ctx.manager.add(
                 url, path, fname + ".mp4",
                 fallbacks=others, cookies=task_cookies,
@@ -469,13 +472,12 @@ class HomeInterface(ScrollArea):
             size = info.size_of(url)
             picked = f"{chosen} · {fmt_size(size)}" if size else chosen
             self._toast("已加入队列", f"{picked} · 开始下载，可在「下载任务」查看进度", "success")
-        # 附带封面：即时下载 + 自动复制文件时，封面另存为 _cover 以免覆盖视频文件
+        # 附带封面：封面另存为 _cover，免得和视频文件同名互相覆盖。
+        # 注意不要把它也登记进 _copy_on_done —— 剪贴板里该留的是用户要的视频，
+        # 封面晚一点下完就会把视频顶掉。
         if cfg.get("download_cover") and info.cover_url and not info.is_image:
-            is_video = bool(info.play_url) and not info.is_image
             cpath = os.path.join(base, fname + "_cover.jpg")
-            task = self.ctx.manager.add(info.cover_url, cpath, "封面")
-            if is_video and cfg.get("auto_copy_file"):
-                self._copy_on_done[task.task_id] = cpath
+            self.ctx.manager.add(info.cover_url, cpath, "封面")
 
     def _on_download_cover(self):
         info = self._current
