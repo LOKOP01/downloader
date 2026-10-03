@@ -10,6 +10,7 @@ import com.xd.vdl.core.model.Quality
 import com.xd.vdl.core.model.VideoInfo
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -52,12 +53,18 @@ object DownloadManager {
                 "视频候选=${if (info.isImage) 0 else quality.videoCandidates.size} | " +
                 "音频候选=${if (quality.needMerge) quality.audioCandidates.size else 0}",
         )
-        val job = scope.launch { runTask(ctx, info, quality, id, selectedPages) }
+        // 先登记再启动：`scope.launch` 会立刻调度协程，而完成回调里的
+        // `jobs.isEmpty()` → stop() 跑在 IO 线程上。若先 launch 后赋值，批量入队
+        // 时前一个任务的收尾可能插在赋值之前，把刚起头的这个任务的前台保护撤掉。
+        val job = scope.launch(start = CoroutineStart.LAZY) {
+            runTask(ctx, info, quality, id, selectedPages)
+        }
         jobs[id] = job
         job.invokeOnCompletion {
             jobs.remove(id)
             if (jobs.isEmpty()) DownloadService.stop(ctx)
         }
+        job.start()
         refreshNotification(force = true)
     }
 
@@ -117,10 +124,15 @@ object DownloadManager {
         if (quality.needMerge) {
             val vf = File(work, "v.m4s")
             val af = File(work, "a.m4s")
+            // 两条轨各自按自己的 Content-Length 如实上报（视频轨 0→100%，音频轨
+            // 再按「视频 + 音频」的合计重算基准）。原来把视频轨写成 d/2、t*2，
+            // 整个视频下完进度条只到 25%，到音频轨才猛跳到 90%+ —— 用户盯着
+            // 25% 不动会以为卡住了。代价是两轨交界处进度会回退一点（音频通常
+            // 只占 5~10%），这比「卡在 25%」诚实得多。
             Downloader.downloadFirst(
                 quality.videoCandidates, info.platform, vf,
                 onProgress = { d, t ->
-                    update(id) { it.copy(downloaded = d / 2, total = if (t > 0) t * 2 else 0) }
+                    update(id) { it.copy(downloaded = d, total = if (t > 0) t else 0) }
                 },
                 onTry = { i, n, u ->
                     AppLog.i("视频 $id 地址 $i/$n ${Downloader.hostOf(u)}")

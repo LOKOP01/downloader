@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.content.FileProvider
 import com.xd.vdl.core.SaveSettings
 import java.io.File
 
@@ -90,7 +91,13 @@ object MediaStoreExporter {
             if (!dir.exists() && !dir.mkdirs()) return null
             val dst = File(dir, file.name)
             runCatching { file.copyTo(dst, overwrite = true) }.onFailure { return null }
-            return Uri.fromFile(dst)
+            // 不能回 file://：targetSdk 24 起把它塞进跨应用 Intent 会抛
+            // FileUriExposedException（Android 7~9 上「打开」按钮因此静默失效）。
+            // 走 FileProvider，路径映射见 res/xml/file_paths.xml 的 public_downloads。
+            return runCatching {
+                FileProvider.getUriForFile(
+                    context, "${context.packageName}.fileprovider", dst)
+            }.getOrNull()
         }
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, file.name)

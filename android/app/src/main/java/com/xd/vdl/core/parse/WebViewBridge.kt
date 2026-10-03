@@ -20,6 +20,7 @@ import okhttp3.Request
 import org.json.JSONObject
 import org.json.JSONTokener
 import java.io.ByteArrayInputStream
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.coroutines.resume
 
 /** 一次页面加载的结果：[value] 为注入 JS 的返回值（已解码），[intercepted] 为命中的请求 URL */
@@ -53,7 +54,11 @@ class WebViewBridge(private val activity: Activity) {
         finishWhen: ((List<String>) -> Boolean)? = null,
         extractJs: String,
     ): ExtractResult = withContext(Dispatchers.Main) {
-        val collected = mutableListOf<String>()
+        // shouldInterceptRequest 跑在 WebView 自己的线程上，而主线程会读快照
+        // （finishWhen 判定 + 返回值）—— 普通 ArrayList 并发 add/toList 可能
+        // 让快照丢掉刚拦到的那条，表现成「页面明明发了视频请求却没拦到」。
+        // CopyOnWriteArrayList 的读快照天然一致。
+        val collected = CopyOnWriteArrayList<String>()
         val handler = Handler(Looper.getMainLooper())
         val wv = WebView(activity)
 
@@ -91,6 +96,9 @@ class WebViewBridge(private val activity: Activity) {
                     override fun shouldInterceptRequest(
                         view: WebView?, request: WebResourceRequest?
                     ): WebResourceResponse? {
+                        // 已经拿到结果（或超时）后 WebView 还在收尾，继续往
+                        // collected 里塞没有意义，只会和主线程读快照重叠。
+                        if (done) return null
                         val u = request?.url?.toString()
                         if (u != null && interceptFilter(u)) {
                             collected.add(u)

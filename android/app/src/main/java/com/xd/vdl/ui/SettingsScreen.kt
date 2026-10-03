@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -31,8 +33,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -218,10 +223,10 @@ private fun SaveLocationCard(vm: AppViewModel) {
 }
 
 /**
- * 一行目录名编辑：前缀只读、末级可改，回车或失焦时保存。
+ * 一行目录名编辑：前缀只读、末级可改，回车、失焦或点「保存」都会提交。
  *
- * 不用「保存按钮」是因为三类目录各配一个按钮太啰嗦；`onFocusChanged` 触发提交，
- * 但对齐输入框用了 `key(epoch)` 重建 —— 保存后要把 sanitize 的结果回显出来。
+ * 保存后靠 `onChanged()` 自增 epoch、由 `key(epoch)` 重建输入框，把
+ * [SaveSettings.sanitize] 过滤后的结果回显出来（避免显示未过滤的原值）。
  */
 @Composable
 private fun DirField(
@@ -235,6 +240,9 @@ private fun DirField(
 ) {
     var text by remember(key, epoch) { mutableStateOf(initial) }
     var bad by remember(key, epoch) { mutableStateOf(false) }
+    // 用于「失焦即提交」：只在 true→false 那一次提交，首次获得焦点不提交
+    var focused by remember(key, epoch) { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
 
     // 提交：过滤后为空说明用户把名字清空了（或输入的全是非法字符），拒绝并回退
     fun commit() {
@@ -262,10 +270,23 @@ private fun DirField(
             OutlinedTextField(
                 value = text,
                 onValueChange = { text = it; bad = false },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    // 失焦即提交 —— 注释里一直写着这个语义，但之前只有下面那个
+                    // 「保存」按钮会调 commit()，靠回车/切走以为保存了的编辑会被
+                    // 同卡片的下一次保存（epoch 变化 → 重新以 initial 播种）悄悄回滚。
+                    .onFocusChanged { state ->
+                        if (focused && !state.isFocused) commit()
+                        focused = state.isFocused
+                    },
                 label = { Text(label) },
                 isError = bad,
                 singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    commit()
+                    focusManager.clearFocus()
+                }),
                 supportingText = if (bad) {
                     { Text("不能为空，也不能只有符号") }
                 } else null,
@@ -364,7 +385,13 @@ fun LoginDialog(
 
                 OutlinedButton(onClick = {
                     val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    val raw = cm.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+                    // 和 MainActivity.sniffClipboard 一样地防一手：剪贴板为空时
+                    // getItemAt(0) 会越界，某些 ROM 在非聚焦窗口读剪贴板会抛
+                    // SecurityException。读不到就当空串，走下面的提示分支。
+                    val raw = runCatching {
+                        cm.primaryClip?.takeIf { it.itemCount > 0 }
+                            ?.getItemAt(0)?.text?.toString()
+                    }.getOrNull().orEmpty()
                     val parsed = CookieStore.parse(raw)
                     if (parsed.isEmpty()) {
                         error = "剪贴板里没识别到 Cookie，先复制好整串再点"

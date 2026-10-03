@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.widget.Toast
 import android.widget.VideoView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -562,7 +563,10 @@ private fun decodeSampled(ctx: Context, uri: String): androidx.compose.ui.graphi
 // ---------------------------------------------------------------------- //
 
 private fun openExternally(ctx: Context, uri: String) {
-    runCatching {
+    // 失败要说出来：以前这里是个空的 runCatching，没有能打开该类型的应用、
+    // 或 URI 不允许跨应用传递（低版本 file:// 会抛 FileUriExposedException）时，
+    // 按钮点下去毫无反应，用户只能干瞪眼。
+    val ok = runCatching {
         val p = Uri.parse(uri)
         ctx.startActivity(
             Intent.createChooser(
@@ -577,5 +581,8 @@ private fun openExternally(ctx: Context, uri: String) {
                 "选择应用",
             ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
+    }.isSuccess
+    if (!ok) {
+        Toast.makeText(ctx, "没有能打开该文件的应用", Toast.LENGTH_SHORT).show()
     }
 }

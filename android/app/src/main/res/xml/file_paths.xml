@@ -3,4 +3,12 @@
     <external-files-path name="dl" path="downloads/" />
     <files-path name="files" path="." />
     <cache-path name="cache" path="." />
+    <!--
+      公共「下载」目录（Android 9 及以下压缩包的落点）：
+      <external-path> 的根是 Environment.getExternalStorageDirectory()，
+      所以 path="Download/" 正好对应 getExternalStoragePublicDirectory(DIRECTORY_DOWNLOADS)。
+      没有这一条，FileProvider.getUriForFile 会抛 IllegalArgumentException，
+      低版本上「打开」压缩包会直接失败。
+    -->
+    <external-path name="public_downloads" path="Download/" />
 </paths>

@@ -110,8 +110,14 @@ fun TasksScreen(vm: AppViewModel) {
 private fun LogPanel() {
     val lines by AppLog.lines.collectAsState()
     val listState = rememberLazyListState()
+    // 只有原本就贴着底部才继续跟随新日志 —— 下载中日志几秒一条，无条件
+    // scrollToItem 会把正在向上翻看历史的人一直拽回底部（桌面端
+    // task_interface.py 里就是这条「在底部才跟随」的规则）。
+    // 首次铺开时还没有任何已布局项，按「在底部」处理，进来即看到最新一行。
     LaunchedEffect(lines.size) {
-        if (lines.isNotEmpty()) {
+        if (lines.isEmpty()) return@LaunchedEffect
+        val laid = listState.layoutInfo.visibleItemsInfo
+        if (laid.isEmpty() || laid.last().index >= lines.size - 2) {
             listState.scrollToItem(lines.lastIndex)
         }
     }
