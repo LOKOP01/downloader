@@ -5,6 +5,8 @@ PySide6-Fluent-Widgets>=1.5.0
 PySideSix-Frameless-Window>=0.4.0
 requests>=2.31.0
 playwright>=1.40.0
+# hanime1 与小红书签名直连都用 curl_cffi（Chrome 指纹伪装 TLS/HTTP2）
+curl_cffi>=0.15.0
 
 # 打包依赖（PyInstaller 生成 exe 时需要）
 pyinstaller>=6.0.0

@@ -5,8 +5,8 @@
 - X：走 syndication 公开接口（免登录），variants 中挑最高码率 mp4
 - Instagram：媒体 info 接口 + HTML 内嵌（严格校验 shortcode，避免串号）
 - Bilibili：wbi 签名 API + DASH 合并
-- 小红书：浏览器渲染后解析 window.__INITIAL_STATE__ 的
-  feed.undertakeNote.items[0].noteCard（视频/图集均走 SSR JSON，免登录可用）
+- 小红书：登录态走 curl_cffi + 本地签名直连 /api/sns/web/v1/feed；
+  未登录 / 失败时回退 Playwright 渲染 SSR noteCard（免登录可用）
 - Iwara：纯 HTTP —— /video/<id> 拿详情，带 X-Version 签名取档位表（Source 原始档）
 - Pornhub：纯 HTTP —— 页面 flashvars 里拿 get_media 签名端点，换到 4 档 mp4 直链
 - hanime1：纯 HTTP + curl_cffi 指纹（站点认 TLS，requests 会 SSL EOF）——
@@ -1648,27 +1648,25 @@ def parse_xiaohongshu(url: str, cookie: str = "",
                       profile_dir: str = "") -> VideoInfo:
     """解析小红书笔记（视频 / 图集）。
 
-    数据来源：小红书 PC 详情页是 SSR，完整 note 数据内联在
-    `window.__INITIAL_STATE__.feed.undertakeNote.items[0].noteCard`，
-    含全部画质档位（1440p / 1080p / 720p）。该 JSON 只能靠浏览器
-    渲染后读 `page.content()` 取得（运行时的 state 是 Vue 响应式对象，
-    含循环引用无法序列化；`feed.undertakeNote.items` 运行时也为空）。
+    主路径：用 curl_cffi + 本地签名直连 `edith /api/sns/web/v1/feed`
+    JSON 接口（vendor 自 Spider_XHS），需登录态（a1 + web_session），
+    不依赖浏览器、对代理更稳。
 
-    **重要**：小红书服务端只对携带有效 `xsec_token` 的详情页下发 SSR 数据，
-    否则跳 `/404?error_code=300031`（当前笔记暂时无法浏览）。
-    `xsec_token` 只能来自 App「分享 → 复制链接」得到的链接，
+    兜底：仍保留原浏览器渲染（Playwright + SSR noteCard）与 HTTP 直连，
+    用于游客态 / 未登录 / 签名接口失效时。
+
+    **重要**：`xsec_token` 只能来自 App「分享 → 复制链接」得到的链接，
     因此本平台请粘贴 App 分享出来的链接（xhslink.com 短链或带
-    `xsec_token=` 的长链接）。浏览器会自动完成短链跳转。
-
-    流程：
-      1) 用持久化 profile 打开分享链接（自动跟随 xhslink 短链跳转）
-      2) 轮询 page.content() 直到 SSR 的 noteCard 出现（含多档画质）
-      3) 解析 noteCard → VideoInfo；图集走 imageList，视频走 video.media.stream
-      4) 兜底：og:video / og:title（画质较低但可用）
+    `xsec_token=` 的长链接）。
     """
     note_id, token = _xhs_ids(url)
 
-    # 1) 浏览器渲染（小红书对请求签名敏感，且 SSR 只在浏览器里完整）
+    # 1) 签名直连 JSON 接口（需登录态，最快最稳；失败静默回退）
+    info = _xhs_api(url, note_id, token, cookie)
+    if info and (info.play_url or info.image_urls):
+        return info
+
+    # 2) 浏览器渲染兜底（小红书对请求签名敏感，且 SSR 只在浏览器里完整）
     try:
         info = _xhs_browser(url, note_id, token, profile_dir or None)
         if info and (info.play_url or info.image_urls):
@@ -1678,7 +1676,7 @@ def parse_xiaohongshu(url: str, cookie: str = "",
     except Exception:
         pass
 
-    # 2) HTTP 直连兜底（部分公开笔记 SSR 直接可见）
+    # 3) HTTP 直连兜底（部分公开笔记 SSR 直接可见）
     try:
         return _xhs_http(url, note_id, token, cookie)
     except ParseError:
@@ -1709,14 +1707,182 @@ def _xhs_ids(url: str) -> tuple:
     if m:
         note_id = m.group(1)
     if not note_id:
-        m = re.search(r'([0-9a-fA-F]{24})', url)
+        # 只在 path 里捞 24 位 hex，避免 login?redirectPath=... 把
+        # URL 编码碎片（如 2F6a92a3...）当成 note_id。
+        path = urllib.parse.urlparse(url).path or ""
+        m = re.search(r'([0-9a-fA-F]{24})', path)
         if m:
             note_id = m.group(1)
     token = ""
     q = urllib.parse.urlparse(url).query
     if q:
         token = (urllib.parse.parse_qs(q).get("xsec_token") or [""])[0]
+    if not token:
+        frag = urllib.parse.urlparse(url).fragment
+        if frag:
+            token = (urllib.parse.parse_qs(frag).get("xsec_token") or [""])[0]
     return note_id, token
+
+
+def _xhs_api(url: str, note_id: str, token: str,
+             cookie: str) -> Optional[VideoInfo]:
+    """签名直连 edith /api/sns/web/v1/feed 拿笔记 JSON（需登录态）。
+
+    仅当 Cookie 同时含 a1 + web_session 时可用；否则返回 None 交给
+    _xhs_browser 兜底。任何异常都不向上抛，静默回退，避免打断解析。
+    """
+    cookie = clean_cookie(cookie or "")
+    if "a1=" not in cookie or "web_session=" not in cookie:
+        return None
+    target = url
+    if not note_id or not token:
+        resolved = _xhs_resolve_short(url, cookie)
+        r_id, r_tok = _xhs_ids(resolved)
+        if r_id:
+            note_id = note_id or r_id
+        if r_tok:
+            token = token or r_tok
+            target = resolved
+    if not note_id or not token:
+        return None
+    # 落地 URL 必须带 xsec_token，否则 feed 接口会 300031
+    if "xsec_token" not in target:
+        target = (f"{XHS_HOST}/explore/{note_id}"
+                  f"?xsec_token={urllib.parse.quote(token)}"
+                  f"&xsec_source=pc_share")
+    try:
+        from .xhsapi import XHS_Apis, XHSPcAuth
+
+        auth = XHSPcAuth.from_cookie(cookie)
+    except Exception:  # noqa: BLE001 - 登录态无效 / 签名初始化失败
+        return None
+    try:
+        success, _msg, res = XHS_Apis(auth).get_note_info(target)
+        if not success:
+            return None
+        items = ((res or {}).get("data") or {}).get("items") or []
+        if not items:
+            return None
+        card = items[0].get("note_card") or items[0].get("noteCard")
+        info = _xhs_api_card_to_info(card, note_id)
+        return info if info and (info.play_url or info.image_urls) else None
+    except Exception:  # noqa: BLE001
+        return None
+    finally:
+        try:
+            auth.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+_XHS_LANDING_RE = re.compile(
+    r'https?://(?:www\.)?xiaohongshu\.com/(?:explore|discovery/item|item)/'
+    r'[0-9a-fA-F]{24}[^"\'\s<>]*xsec_token=',
+    re.I,
+)
+
+
+def _xhs_cookie_map(cookie: str) -> dict:
+    out = {}
+    for part in (cookie or "").split(";"):
+        if "=" not in part:
+            continue
+        k, v = part.split("=", 1)
+        k = k.strip()
+        if k:
+            out[k] = v.strip()
+    return out
+
+
+def _xhs_resolve_short(url: str, cookie: str = "") -> str:
+    """跟随 xhslink 短链，返回带 note_id + xsec_token 的落地 URL。
+
+    不把最终跳到 /login 的地址当成功：短链常先 302 到笔记页，未带登录
+    Cookie 时再被踢去登录页，requests 默认跟随会把 xsec_token 跟丢。
+    """
+    headers = {"User-Agent": XHS_UA, "Accept": "text/html,application/xhtml+xml"}
+    cookies = _xhs_cookie_map(cookie)
+    try:
+        from curl_cffi import requests as cffi_requests
+        sess = cffi_requests.Session(impersonate="chrome146")
+        getter = sess.get
+    except Exception:  # noqa: BLE001
+        getter = requests.get
+        sess = None
+    current = url
+    found = ""
+    try:
+        for _ in range(8):
+            resp = getter(
+                current, headers=headers, cookies=cookies or None,
+                timeout=15, allow_redirects=False,
+            )
+            loc = (resp.headers.get("Location")
+                   or resp.headers.get("location") or "")
+            if loc:
+                loc = urllib.parse.urljoin(current, loc)
+                nid, tok = _xhs_ids(loc)
+                if nid and tok:
+                    found = loc
+                    break
+                current = loc
+                if "/login" in urllib.parse.urlparse(current).path:
+                    break
+                continue
+            body = ""
+            try:
+                body = resp.text or ""
+            except Exception:  # noqa: BLE001
+                body = ""
+            m = _XHS_LANDING_RE.search(body)
+            if m:
+                found = m.group(0).rstrip(").,;]")
+                break
+            nid, tok = _xhs_ids(getattr(resp, "url", "") or current)
+            if nid and tok:
+                found = resp.url or current
+            break
+    except Exception:  # noqa: BLE001
+        found = found or url
+    finally:
+        if sess is not None:
+            try:
+                sess.close()
+            except Exception:  # noqa: BLE001
+                pass
+    return found or url
+
+
+def _xhs_api_card_to_info(card: dict, note_id: str) -> Optional[VideoInfo]:
+    """把 /feed 接口返回的 snake_case note_card 转成 VideoInfo。
+
+    /feed 的 note_card 是 SSR noteCard 的蛇形命名版，先用 _xhs_camelize
+    归一到 camelCase，再复用现有 _xhs_card_to_info 的画质去重/大小/水印逻辑。
+    """
+    if not isinstance(card, dict):
+        return None
+    got_id = card.get("note_id") or card.get("noteId")
+    if not got_id:
+        return None
+    if note_id and str(got_id) != str(note_id):
+        return None  # 串号保护
+    return _xhs_card_to_info(_xhs_camelize(card))
+
+
+def _xhs_camelize(obj):
+    """把 snake_case 键递归转成 camelCase（note_id -> noteId 等）。"""
+    if isinstance(obj, dict):
+        out = {}
+        for k, v in obj.items():
+            key = str(k)
+            if "_" in key:
+                parts = key.split("_")
+                key = parts[0] + "".join(p.title() for p in parts[1:])
+            out[key] = _xhs_camelize(v)
+        return out
+    if isinstance(obj, list):
+        return [_xhs_camelize(v) for v in obj]
+    return obj
 
 
 def _xhs_browser(url: str, note_id: str, token: str,

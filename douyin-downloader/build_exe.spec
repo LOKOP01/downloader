@@ -63,6 +63,22 @@ _VERSION_SRC = os.path.join(_SPECDIR, 'app_version.txt')
 if os.path.exists(_VERSION_SRC):
     datas.append((_VERSION_SRC, '.'))
 
+# 小红书签名直连：sites.py 里延迟 import xhsapi，必须 hiddenimport，
+# 否则 onefile 运行期找不到 vendor。JS/JSON 作为 data 打进包。
+# node.exe 不另打 sidecar：Playwright 已把 driver/node.exe 打进包，
+# _node.py 在 frozen 路径下会回落到 sys._MEIPASS/playwright/driver/node.exe。
+from PyInstaller.utils.hooks import collect_submodules
+hiddenimports += collect_submodules('app.core.xhsapi')
+_XHSAPI_ROOT = os.path.join(_SPECDIR, 'app', 'core', 'xhsapi')
+for _sub in ('xhs_core', 'xhs_pc'):
+    _js_src = os.path.join(_XHSAPI_ROOT, _sub, 'js')
+    if os.path.isdir(_js_src):
+        _js_dst = os.path.join('app', 'core', 'xhsapi', _sub, 'js')
+        for _name in sorted(os.listdir(_js_src)):
+            _p = os.path.join(_js_src, _name)
+            if os.path.isfile(_p):
+                datas.append((_p, _js_dst))
+
 a = Analysis(
     ['main.py'],
     pathex=[],
