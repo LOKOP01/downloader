@@ -8,7 +8,20 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
+
+
+def node_popen_kwargs() -> dict:
+    """Windows 下隐藏 node 控制台窗口。
+
+    签名路径会连打几次 node（b1 / sign / x-rap-param），不设 CREATE_NO_WINDOW
+    时 GUI 程序每次解析都会闪 3～4 个黑框。
+    """
+    flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+    if not flags:
+        return {}
+    return {'creationflags': flags}
 
 
 def get_node_cmd() -> str:
@@ -53,4 +66,4 @@ def get_node_cmd() -> str:
     )
 
 
-__all__ = ['get_node_cmd']
+__all__ = ['get_node_cmd', 'node_popen_kwargs']

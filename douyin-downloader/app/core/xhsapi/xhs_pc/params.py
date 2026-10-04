@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from ..util import trans_cookies
 from ..xhs_core.http import ordered_wire_headers
-from .._node import get_node_cmd
+from .._node import get_node_cmd, node_popen_kwargs
 
 
 PC_LOGIN_ACCEPT_LANGUAGE = 'zh-CN,zh;q=0.9'
@@ -273,6 +273,7 @@ def generate_x_rap_param(api, data, app_id=None, fingerprint_hex: str = ''):
         r = _sp.run(
             argv, capture_output=True, text=True,
             cwd=os.path.dirname(_RAP_CLI), timeout=30,
+            **node_popen_kwargs(),
         )
         out = (r.stdout or '').strip()
         if out and out.startswith('ByQ'):

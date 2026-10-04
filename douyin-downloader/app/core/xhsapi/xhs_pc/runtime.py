@@ -14,7 +14,7 @@ import os
 import re
 import subprocess
 from typing import Any, Mapping, Optional
-from .._node import get_node_cmd
+from .._node import get_node_cmd, node_popen_kwargs
 
 
 _JS_DIR = os.path.join(os.path.dirname(__file__), 'js')
@@ -53,6 +53,7 @@ def generate_b1(
             cwd=_JS_DIR,
             encoding='utf-8',
             errors='replace',
+            **node_popen_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError(f'b1 runtime failed to start: {exc}') from exc
@@ -116,6 +117,7 @@ def run_signer(
             cwd=_JS_DIR,
             encoding='utf-8',
             errors='replace',
+            **node_popen_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return None
@@ -157,6 +159,7 @@ def _run_web_ssk(payload: Mapping[str, Any], timeout: float = 10.0) -> dict:
             cwd=_JS_DIR,
             encoding='utf-8',
             errors='replace',
+            **node_popen_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError(f'webSsk helper failed to start: {exc}') from exc
@@ -232,6 +235,7 @@ def generate_websectiga(
             cwd=_JS_DIR,
             encoding='utf-8',
             errors='replace',
+            **node_popen_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError(f'websectiga runtime failed to start: {exc}') from exc
@@ -301,6 +305,7 @@ def generate_profile_data(
             cwd=_JS_DIR,
             encoding='utf-8',
             errors='replace',
+            **node_popen_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise RuntimeError(f'profileData runtime failed to start: {exc}') from exc
