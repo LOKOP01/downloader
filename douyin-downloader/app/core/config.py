@@ -12,7 +12,7 @@ DEFAULT_CONFIG = {
     "bili_cookie": "",             # Bilibili Cookie（登录后自动导出，或手填）
     "xhs_cookie": "",              # 小红书 Cookie（登录后自动导出，或手填）
     "jm_cookie": "",               # 禁漫天堂 Cookie（AVS，登录后导出或手填）
-    "naming_rule": "timestamp",    # timestamp / author_title / title / id_title
+    "naming_rule": "unique_id",    # unique_id / timestamp / author_title / title / id_title
     "max_concurrent": 3,
     "theme": "dark",                 # dark / light / auto
     "accent_color": "indigo",        # 界面强调色，取值见 view/design.ACCENTS
@@ -123,7 +123,7 @@ class Config:
 
     def build_filename(self, info) -> str:
         """按命名规则生成文件名（不含扩展名）"""
-        rule = self.get("naming_rule", "timestamp")
+        rule = self.get("naming_rule", "unique_id")
         title = info.safe_title()
         if rule == "timestamp":
             from datetime import datetime
@@ -134,6 +134,13 @@ class Config:
         author = re.sub(r'[\\/:*?"<>|\r\n]+', "_", info.author or "")[:30] or "unknown"
         # 其余规则统一在前面加「年月日_」，便于按下载日期排序与检索
         prefix = datetime.now().strftime("%Y%m%d_")
+        if rule == "unique_id":
+            # 唯一命名：作品ID + 标题 + 下载时间戳。ID 保证同一作品跨次解析
+            # 落到同一前缀（增量更新靠它判重），末尾时间戳保证「重新下载同一
+            # 作品」也得到新文件名，不会互相覆盖；标题保留可读性便于人工翻找。
+            uid = re.sub(r'[\\/:*?"<>|\r\n]+', "_", info.unique_id or "")[:80]
+            tail = uid if not title else f"{uid}_{title}"
+            return f"{tail}_{datetime.now().strftime(self.DATE_TIME_FMT)}"[:150]
         if rule == "title":
             return f"{prefix}{title}"
         if rule == "id_title":

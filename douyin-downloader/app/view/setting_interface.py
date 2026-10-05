@@ -137,12 +137,14 @@ class SettingInterface(ScrollArea):
         group.addSettingCard(self.ffmpegCard)
 
         self.namingCard = SettingCard(
-            FIF.EDIT, "文件命名规则", "文件名统一带「年月日_」前缀，便于按下载日期排序", group)
+            FIF.EDIT, "文件命名规则",
+            "「唯一命名」用作品ID+标题+时间戳，同一作品不重名、可增量更新去重", group)
         self.namingCombo = ComboBox(self.namingCard)
-        self.namingCombo.addItems(["日期_时间", "日期_作者_标题", "日期_标题",
-                                   "日期_作品ID_标题"])
-        rule_map = {"timestamp": 0, "author_title": 1, "title": 2, "id_title": 3}
-        rule_keys = ["timestamp", "author_title", "title", "id_title"]
+        self.namingCombo.addItems(["唯一命名", "日期_时间", "日期_作者_标题",
+                                   "日期_标题", "日期_作品ID_标题"])
+        rule_map = {"unique_id": 0, "timestamp": 1, "author_title": 2,
+                    "title": 3, "id_title": 4}
+        rule_keys = ["unique_id", "timestamp", "author_title", "title", "id_title"]
         self.namingCombo.setCurrentIndex(rule_map.get(cfg.get("naming_rule"), 0))
         self.namingCombo.currentIndexChanged.connect(
             lambda i: cfg.set("naming_rule", rule_keys[i]))

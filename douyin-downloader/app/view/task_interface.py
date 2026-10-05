@@ -22,6 +22,19 @@ from ..core.applog import get_logger
 
 COL_NAME, COL_SIZE, COL_PROGRESS, COL_SPEED, COL_QUALITY, COL_STATUS, COL_ACTION = range(7)
 
+# 各列固定宽度（px）。**必须固定，不能用 ResizeToContents**：
+# 文件名列是 Stretch，右侧任何一列随文本变宽变窄，都会把 Stretch 列挤窄，
+# 导致进度条在整个下载过程中水平位置持续漂移（用户 2026-10-04 反馈）。
+# 尺寸按各列最长可能文本实测（见 _scratch_x_probe），只给文件名列留弹性。
+_COL_WIDTHS = {
+    COL_SIZE: 100,       # -- / 3.5 MB / 128.9 MB / 2.4 GB
+    COL_PROGRESS: 170,   # 进度条（160）+ 左右留白
+    COL_SPEED: 120,      # -- / 12.3 MB/s
+    COL_QUALITY: 360,    # 2160×3840 · 21000kbps · 27fps（实测 348px + 内边距）
+    COL_STATUS: 150,     # 等待中 / 下载中 / 合并中 / 已完成 / 失败：…
+    COL_ACTION: 150,     # 4 个操作按钮
+}
+
 # 日志面板：轮询间隔 / 面板保留行数 / 打开页面时先回看多少行
 LOG_POLL_MS = 400
 LOG_VIEW_LINES = applog.MEMORY_LINES      # 与内存缓冲对齐：再大也取不到更多
@@ -113,10 +126,13 @@ class TaskInterface(ScrollArea):
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         header = self.table.horizontalHeader()
+        # 只让文件名列吸收剩余宽度；其余列全部固定，避免下载中文本变化
+        # 引起列宽抖动、把进度条挤得左右乱跑（见 _COL_WIDTHS 说明）
         header.setSectionResizeMode(COL_NAME, QHeaderView.Stretch)
         for c in (COL_SIZE, COL_PROGRESS, COL_SPEED, COL_QUALITY,
                   COL_STATUS, COL_ACTION):
-            header.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+            header.setSectionResizeMode(c, QHeaderView.Fixed)
+            self.table.setColumnWidth(c, _COL_WIDTHS[c])
         self.table.setMinimumHeight(360)
         self.table.setMinimumWidth(0)
         lay.addWidget(self.table)
@@ -240,11 +256,18 @@ class TaskInterface(ScrollArea):
         self.table.setItem(row, COL_NAME, name)
         self.table.setItem(row, COL_SIZE, QTableWidgetItem("--"))
 
+        # 进度条放进容器：固定宽度 + 左对齐，位置不随数值/列宽变化
         bar = ProgressBar(self.table)
         bar.setRange(0, 100)
         bar.setValue(0)
-        bar.setFixedWidth(160)
-        self.table.setCellWidget(row, COL_PROGRESS, bar)
+        bar.setFixedWidth(150)
+        holder = QWidget(self.table)
+        hb = QHBoxLayout(holder)
+        hb.setContentsMargins(8, 0, 8, 0)
+        hb.setSpacing(0)
+        hb.addWidget(bar)
+        hb.addStretch(1)
+        self.table.setCellWidget(row, COL_PROGRESS, holder)
 
         self.table.setItem(row, COL_SPEED, QTableWidgetItem("--"))
         self.table.setCellWidget(row, COL_QUALITY, self._quality_widget(info.quality))
@@ -274,6 +297,15 @@ class TaskInterface(ScrollArea):
         h.addWidget(delBtn)
         self.table.setCellWidget(row, COL_ACTION, actions)
         self._refresh_summary()
+
+    def _progress_bar_at(self, row: int):
+        """取某行的进度条控件（它被包在容器里，用于锁死水平位置）"""
+        holder = self.table.cellWidget(row, COL_PROGRESS)
+        if holder is None:
+            return None
+        if isinstance(holder, ProgressBar):
+            return holder
+        return holder.findChild(ProgressBar)
 
     def _quality_widget(self, quality: str):
         """「画质」单元格：分辨率/码率 + 高亮帧率（60fps 绿色、30fps 灰色）"""
@@ -308,7 +340,7 @@ class TaskInterface(ScrollArea):
                     txt = size_item.text() or "--"
                 if size_item.text() != txt:
                     size_item.setText(txt)
-            bar = self.table.cellWidget(row, COL_PROGRESS)
+            bar = self._progress_bar_at(row)
             if bar and bar.value() != info.percent:
                 bar.setValue(info.percent)
             speed_item = self.table.item(row, COL_SPEED)

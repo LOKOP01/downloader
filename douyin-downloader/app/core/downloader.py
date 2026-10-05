@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """下载任务管理：多线程队列 + Qt 信号汇报进度"""
 import os
+import re
 import subprocess
 import threading
 import time
@@ -753,11 +754,18 @@ class DownloadManager(QObject):
                             info.task_id, url[:120], exc_info=True)
                 self._discard_partial(tmp_path)
         return self._stream_to_file(url, tmp_path, headers, cancel, info,
-                                    base_done=base_done, base_total=base_total)
+                                    base_done=base_done, base_total=base_total,
+                                    base_total_seen=total)
 
     def _stream_to_file(self, url: str, tmp_path: str, headers: dict, cancel,
-                        info, base_done: int = 0, base_total: int = 0) -> int:
-        """把 url 流式写入 tmp_path（断点续传），返回已写入字节数"""
+                        info, base_done: int = 0, base_total: int = 0,
+                        base_total_seen: int = 0) -> int:
+        """把 url 流式写入 tmp_path（断点续传），返回已写入字节数
+
+        `base_total_seen` 是探测阶段（`_probe_total`）拿到的本轨道已知总长：
+        响应头里没有 Content-Length 时（chunked / `bytes x-y/*`）用它兜底，
+        否则收尾的完整性判断会因为 total=0 而失效（见 BUG-1）。
+        """
         downloaded = 0
         mode = "wb"
         resume_from = 0
@@ -844,6 +852,13 @@ class DownloadManager(QObject):
             if rid and mode == "wb":
                 self._write_meta(meta_path, rid)
             total = int(resp.headers.get("Content-Length", 0)) + downloaded
+            # 服务端没给 Content-Length（chunked 传输 / `Content-Range: bytes x-y/*`）
+            # 时，用探测阶段拿到的已知总长兜底，让收尾的完整性比对仍然生效。
+            # 真实 CDN（HTTP/1.1 + HTTPS）必带 CL 或 chunked（chunked 被截断时
+            # requests 会抛 ChunkedEncodingError），因此这里是防御性加固：
+            # 万一遇到既无长度、又靠连接关闭界定 body 的响应，至少能拿探测值比对。
+            if not total and base_total_seen:
+                total = base_total_seen
             info.total = (base_total or 0) + total
             info.downloaded = base_done + downloaded
             last_time, last_bytes = time.time(), downloaded
@@ -860,10 +875,21 @@ class DownloadManager(QObject):
                             info.speed = (downloaded - last_bytes) / (now - last_time)
                             last_time, last_bytes = now, downloaded
                             self.task_progress.emit(info)
+        # ---- 完整性判定 ----
+        # ① 知道总长：严格比对（旧行为）
         if total > 0 and downloaded < total:
             log.warning("下载被截断：%s 只拿到 %s/%s 字节", os.path.basename(tmp_path),
                         downloaded, total)
             raise IncompleteDownload(f"下载不完整 {downloaded}/{total} 字节")
+        # ② 不知道总长：只能判断响应体是否被完整读完。chunked 响应在服务端正常
+        #    收尾时会读到结束标记（Connection 正常关闭），而中途被切断（CDN 掉了、
+        #    代理超时）时 requests 会抛 ChunkedEncodingError —— 那种情况在
+        #    iter_content 里已经冒泡成异常，走不到这里。真正漏网的是「服务端主动
+        #    正常 close 了连接、但只发了部分数据」：此时 Content-Length 也没有，
+        #    只能靠「响应声明为压缩/分块却提前结束」这种信号，requests 无从察觉。
+        #    兜底：total 未知且字节数为 0 → 判失败，别把空文件当成品。
+        if total <= 0 and downloaded <= 0:
+            raise IncompleteDownload("服务端未返回任何数据（且未声明长度），已放弃")
         return downloaded
 
 

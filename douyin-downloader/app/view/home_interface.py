@@ -510,6 +510,8 @@ class HomeInterface(ScrollArea):
         self._toast(msg, "", "success")
 
     def _on_task_finished(self, info):
+        # 无论成功与否都要摘掉登记项：失败 / 取消的任务不会再走「已完成」分支，
+        # 不 pop 就会永久留在 dict 里（长期运行缓慢泄漏）。
         path = self._copy_on_done.pop(info.task_id, None)
         if path and info.status == "已完成":
             try:

@@ -63,6 +63,8 @@ def platform_of_host(url: str) -> str:
 def platform_of_source(source: str) -> str:
     """把 VideoInfo.source 归一化成平台标识（兼容旧值）"""
     src = (source or "").strip().lower()
+    if src == "telegram" or src == "tg":
+        return ""
     if src in PLATFORM_HOSTS:
         return src
     if src in ("xhs", "redbook"):

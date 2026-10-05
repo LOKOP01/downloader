@@ -8,11 +8,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QHBoxLayout,
                                QHeaderView, QLabel, QTableWidgetItem, QWidget)
 from qfluentwidgets import (FluentIcon as FIF, IndeterminateProgressBar,
                             InfoBar, InfoBarPosition, LineEdit,
-                            PrimaryPushButton, PushButton, ScrollArea,
+                            PrimaryPushButton, PushButton, ScrollArea, SwitchButton,
                             TableWidget)
 
 from ..core.domain import URL_PATTERN, needs_cookie_for_source
-from ..core.models import VideoInfo, quality_html
+from ..core.models import (VideoInfo, is_already_downloaded, quality_html,
+                           scan_downloaded_ids)
 from ..core.site_ctx import SiteContext
 from ..core.workers import LoginWorker, UserResolveWorker, UserVideosWorker
 from . import design as D
@@ -39,6 +40,9 @@ class BatchInterface(ScrollArea):
         self.has_more = False
         self._infos = []        # 与表格行一一对应
         self._workers = []
+        self._downloaded_ids = set()   # 下载目录里已有作品的唯一 ID 前缀
+        self._fetching = False         # 是否正在解析用户主页（防回车重入）
+        self._loading_page = False     # 是否正在抓取作品列表（防「加载更多」重入）
 
         self._build_header()
         self._build_input_card()
@@ -95,6 +99,15 @@ class BatchInterface(ScrollArea):
         toolbar.setSpacing(D.GAP_SM)
         self.countLabel = D.section_label("作品列表", card)
         toolbar.addWidget(self.countLabel)
+        self.incrementalSwitch = SwitchButton(card)
+        self.incrementalSwitch.setChecked(True)
+        self.incrementalSwitch.setToolTip(
+            "开启后按作品ID比对下载目录：已下过的自动取消勾选并标注「已下载」，"
+            "只补下新增作品（不再重复下载）")
+        incLabel = D.hint_label("增量更新", card)
+        incLabel.setToolTip(self.incrementalSwitch.toolTip())
+        toolbar.addWidget(incLabel)
+        toolbar.addWidget(self.incrementalSwitch)
         toolbar.addStretch(1)
         self.selectAllBtn = PushButton(FIF.ACCEPT_MEDIUM, "全选", card)
         self.selectAllBtn.clicked.connect(lambda: self._set_all_checked(True))
@@ -105,6 +118,7 @@ class BatchInterface(ScrollArea):
         self.loadMoreBtn.setEnabled(False)
         self.downloadBtn = PrimaryPushButton(FIF.DOWNLOAD, "下载选中", card)
         self.downloadBtn.clicked.connect(self._on_download_selected)
+        self.incrementalSwitch.checkedChanged.connect(self._on_incremental_changed)
         toolbar.addWidget(self.selectAllBtn)
         toolbar.addWidget(self.selectNoneBtn)
         toolbar.addWidget(self.loadMoreBtn)
@@ -159,10 +173,15 @@ class BatchInterface(ScrollArea):
 
     # ------------------------------------------------------------------ #
     def _on_fetch(self):
+        # 防重入：输入框的回车（returnPressed）不受 _busy 的按钮禁用约束，
+        # 解析中回车会再起一个 worker，两个结果互相覆盖（后完成的赢）。
+        if self._fetching:
+            return
         text = self.linkEdit.text().strip()
         if not text:
             self._toast("请输入用户主页链接", "", "warning")
             return
+        self._fetching = True
         self._busy(True)
         self.userLabel.setText("正在解析用户主页…")
         w = UserResolveWorker(self.ctx.config.get("cookie", ""), text, self)
@@ -173,6 +192,8 @@ class BatchInterface(ScrollArea):
         w.start()
 
     def _on_user_resolved(self, sec_uid: str):
+        # 主页解析已完成，交棒给 _load_page（后者自己有独立的防重入位）
+        self._fetching = False
         self.sec_uid = sec_uid
         self._infos.clear()
         self.table.setRowCount(0)
@@ -184,6 +205,10 @@ class BatchInterface(ScrollArea):
             self._load_page()
 
     def _load_page(self):
+        # 同样防重入：「加载更多」连点会叠加多个抓取 worker
+        if self._loading_page:
+            return
+        self._loading_page = True
         self._busy(True)
         self.userLabel.setText("正在通过浏览器抓取作品列表（作品较多时需要几十秒）…")
         w = UserVideosWorker(self.ctx.config.get("cookie", ""),
@@ -213,6 +238,8 @@ class BatchInterface(ScrollArea):
             if self.sec_uid:
                 self._infos.clear()
                 self.table.setRowCount(0)
+                self._fetching = False      # 登录完成后重抓，清掉可能卡住的防重入位
+                self._loading_page = False
                 self._load_page()
         else:
             self._toast("登录未完成", msg, "warning")
@@ -230,6 +257,8 @@ class BatchInterface(ScrollArea):
                     "warning")
 
     def _on_page_loaded(self, infos: list, next_cursor: int, has_more: bool, nickname: str):
+        self._fetching = False          # 整条链路（解析主页 → 抓列表）已收尾
+        self._loading_page = False
         self._busy(False)
         self.max_cursor = next_cursor
         self.has_more = has_more
@@ -242,7 +271,14 @@ class BatchInterface(ScrollArea):
         self.countLabel.setText(f"作品列表（共 {len(self._infos)} 个）")
         self.userLabel.setText(f"作者：{self.nickname or self.sec_uid}，已全部加载")
         if infos:
-            self._toast("加载完成", f"共获取 {len(infos)} 个作品", "success")
+            if self.incrementalSwitch.isChecked():
+                # 新抓到的作品也要比对下载目录，标出已下载的
+                self._refresh_row_states()
+                done = sum(0 if cb.isEnabled() else 1 for _, cb in self._infos)
+                tail = f"，其中 {done} 个已下载将跳过" if done else ""
+                self._toast("加载完成", f"共获取 {len(infos)} 个作品{tail}", "success")
+            else:
+                self._toast("加载完成", f"共获取 {len(infos)} 个作品", "success")
 
     def _append_row(self, info: VideoInfo):
         row = self.table.rowCount()
@@ -273,10 +309,66 @@ class BatchInterface(ScrollArea):
             item.setData(Qt.DisplayRole, val)
             self.table.setItem(row, col, item)
         self._infos.append((info, cb))
+        self._apply_row_state(len(self._infos) - 1)
+
+    def _apply_row_state(self, index: int):
+        """按「增量更新」开关刷新某一行的勾选状态与「已下载」标注"""
+        if not (0 <= index < len(self._infos)):
+            return
+        info, cb = self._infos[index]
+        incremental = self.incrementalSwitch.isChecked()
+        done = bool(incremental and self._downloaded_ids
+                    and is_already_downloaded(info, self._downloaded_ids))
+        cb.setEnabled(not done)
+        # 已下载 → 取消勾选（不重复下）；关闭增量 → 恢复默认全选
+        cb.setChecked(not done)
+        item = self.table.item(index, COL_TITLE)
+        if item is not None:
+            base = info.title or info.aweme_id
+            item.setText(f"✔ 已下载 · {base}" if done else base)
+            # 已下载用灰色弱化；恢复时不设前景色（交给主题决定，避免浅色
+            # 主题下白字看不见）
+            if done:
+                item.setForeground(Qt.gray)
+            else:
+                item.setData(Qt.ForegroundRole, None)
+            item.setToolTip(("已在下载目录中找到该作品，增量更新下将跳过\n" + base)
+                            if done else base)
+
+    def _refresh_row_states(self):
+        """重扫下载目录并刷新全部行的已下载标记（开关切换 / 抓完新列表时调用）"""
+        cfg = self.ctx.config
+        base = cfg.get("download_path")
+        if cfg.get("create_author_folder") and self.nickname:
+            import re
+            author = re.sub(r'[\\/:*?"<>|\r\n]+', "_", self.nickname)[:30]
+            base = os.path.join(base, author)
+        self._downloaded_ids = scan_downloaded_ids(base)
+        for i in range(len(self._infos)):
+            self._apply_row_state(i)
+        return len(self._downloaded_ids)
 
     def _set_all_checked(self, checked: bool):
-        for _, cb in self._infos:
+        for i, (_, cb) in enumerate(self._infos):
+            if not cb.isEnabled():
+                continue          # 已下载行不可选，全选也不该勾上
             cb.setChecked(checked)
+
+    def _on_incremental_changed(self, checked: bool):
+        """切换增量更新：重扫下载目录并刷新所有行的「已下载」标注"""
+        if checked:
+            self._refresh_row_states()
+            skipped = 0
+            if self._infos:
+                skipped = sum(0 if cb.isEnabled() else 1 for _, cb in self._infos)
+            if skipped:
+                self._toast("增量更新已开启",
+                            f"{skipped} 个作品在下载目录中已存在，已自动跳过", "success")
+        else:
+            # 关闭增量：清掉已下载集合，所有行恢复默认勾选
+            self._downloaded_ids = set()
+            for i in range(len(self._infos)):
+                self._apply_row_state(i)
 
     def _on_download_selected(self):
         selected = [info for info, cb in self._infos if cb.isChecked()]
@@ -289,6 +381,25 @@ class BatchInterface(ScrollArea):
             import re
             author = re.sub(r'[\\/:*?"<>|\r\n]+', "_", self.nickname)[:30]
             base = os.path.join(base, author)
+        # 增量更新兜底：重扫一次下载目录，勾选期间已下过的作品直接跳过，
+        # 避免"刚下完又点一次下载"造成重复下载
+        incremental = self.incrementalSwitch.isChecked()
+        skipped = 0
+        if incremental:
+            existing = scan_downloaded_ids(base)
+            kept = []
+            for info in selected:
+                if is_already_downloaded(info, existing):
+                    skipped += 1
+                else:
+                    kept.append(info)
+            selected = kept
+            if skipped:
+                self._refresh_row_states()
+            if not selected:
+                self._toast("无需下载", f"选中的 {skipped} 个作品都已存在，已全部跳过",
+                            "success")
+                return
         n = 0
         site_ctx = SiteContext.from_config(cfg)
         for info in selected:
@@ -318,7 +429,9 @@ class BatchInterface(ScrollArea):
                     url_backups=info.url_backups,
                     audio_backups=info.audio_backups)
                 n += 1
-        self._toast("已加入队列", f"{len(selected)} 个作品、共 {n} 个文件开始下载", "success")
+        tail = f"，跳过 {skipped} 个已下载" if skipped else ""
+        self._toast("已加入队列",
+                    f"{len(selected)} 个作品、共 {n} 个文件开始下载{tail}", "success")
 
     # ------------------------------------------------------------------ #
     def _busy(self, busy: bool):
@@ -326,6 +439,9 @@ class BatchInterface(ScrollArea):
         self.progress.setVisible(busy)
 
     def _on_fail(self, msg: str):
+        # 失败路径也必须复位，否则防重入位会把后续所有操作永久挡住
+        self._fetching = False
+        self._loading_page = False
         self._busy(False)
         self.userLabel.setText("")
         self._toast("操作失败", msg, "error")

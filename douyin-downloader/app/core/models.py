@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """数据模型定义"""
+import os
 import re
 import urllib.parse
 from dataclasses import dataclass, field
@@ -59,6 +60,21 @@ class VideoInfo:
         name = re.sub(r'[\\/:*?"<>|\r\n]+', "_", name)
         return name[:max_len].strip() or self.aweme_id
 
+    @property
+    def unique_id(self) -> str:
+        """作品在整个下载目录里的唯一标识（用于增量更新去重）
+
+        各平台的 `aweme_id` 语义不同，但都满足「同一作品跨次解析稳定不变」：
+        抖音/B站/X/小红书/Iwara/Pornhub/hanime1 是平台作品 ID，Instagram 是
+        shortcode，禁漫是车号。`source` 前缀避免不同平台撞号（Iwara 与
+        hanime1 的 ID 都可能出现纯数字）。
+        识别不出 ID 时回退到「来源_标题」，宁可比对偏严也不要漏判重复。
+        """
+        aid = (self.aweme_id or "").strip()
+        if aid:
+            return f"{self.source}_{aid}"
+        return f"{self.source}_{self.safe_title(40)}"
+
     def size_of(self, url: str) -> int:
         """取某个档位地址对应的文件大小（字节）；未知返回 0"""
         return int(self.quality_sizes.get(url or "", 0) or 0)
@@ -115,6 +131,73 @@ class DownloadTaskInfo:
         if self.total <= 0:
             return 0
         return min(100, int(self.downloaded * 100 / self.total))
+
+
+def scan_downloaded_ids(base_dir: str, source: str = "") -> set:
+    """扫描下载目录，返回「已存在文件的名称前缀」集合（供增量更新判重）
+
+    返回的是**文件名去掉扩展名后的原串**，例如
+    `douyin_7123456789_标题_20261004_213700`、`x_1234567890_标题`。
+    调用方用 `is_already_downloaded(info, ids)` 判断某作品是否已下过 ——
+    两者约定：只要文件名**以 `<唯一ID>` 或 `<唯一ID>_` 开头**即算命中，
+    因此重名自动追加的 `_1` / `_2` 后缀不影响判定。
+
+    扫描范围：下载目录一层 + 各作者子目录一层（`create_author_folder`
+    开启时的布局）。图集是「作品ID 同名子文件夹」，目录名同样会被收进来，
+    于是图集也能被正确判重。
+    """
+    found = set()
+    if not base_dir or not os.path.isdir(base_dir):
+        return found
+    want_src = f"{source}_" if source else ""
+
+    def _take(name: str):
+        stem = os.path.splitext(name)[0]
+        if not stem:
+            return
+        if want_src and not stem.startswith(want_src):
+            return
+        found.add(stem)
+
+    try:
+        names = os.listdir(base_dir)
+    except OSError:
+        return found
+    for name in names:
+        _take(name)                       # 平铺文件 / 图集子文件夹
+        sub = os.path.join(base_dir, name)
+        if os.path.isdir(sub):
+            try:
+                for f in os.listdir(sub):
+                    _take(f)              # 作者子目录里的文件
+            except OSError:
+                continue
+    return found
+
+
+def is_already_downloaded(info, existing: set) -> bool:
+    """判断某个作品是否已存在于下载目录
+
+    `existing` 为 `scan_downloaded_ids` 的返回值。判定方式：文件名**以
+    `<唯一ID>` 开头且紧跟边界**（结尾或 `_`）即视为已下载。唯一命名规则下
+    新文件一定以 ID 开头；历史文件若不含 ID 则无法判定，返回 False
+    （宁可重下也不漏下）。
+
+    **为什么不能只看前缀**：ID 之间常有包含关系（`x_1234` 是 `x_12345` 的
+    前缀），只用 `startswith(uid)` 会把别人的作品误判成已下载，导致整件作品
+    被增量更新跳过。这里要求 uid 之后必须是字符串结尾或 `_` —— 而 `<uid>_`
+    这个形态是「重名后缀 `_1`」和「uid 后接标题」共有的合法形态。
+    """
+    uid = (info.unique_id or "").strip()
+    if not uid or not existing:
+        return False
+    for stem in existing:
+        if stem == uid:
+            return True
+        # 只认 `<uid>_…`：排除 `x_12345_bar` 这类「同前缀但 ID 更长」的误命中
+        if stem.startswith(uid) and len(stem) > len(uid) and stem[len(uid)] == "_":
+            return True
+    return False
 
 
 def fmt_size(num: float) -> str:
