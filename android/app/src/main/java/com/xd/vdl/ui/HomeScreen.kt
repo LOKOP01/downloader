@@ -115,9 +115,14 @@ fun HomeScreen(vm: AppViewModel, activity: Activity) {
                 Spacer(Modifier.width(6.dp))
                 Text(if (parsing) "解析中…" else "开始解析")
             }
-            if (info != null) {
+            if (info != null || link.isNotBlank()) {
                 Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = { vm.clearResult() }) { Text("清空") }
+                OutlinedButton(
+                    onClick = { vm.clearAll() },
+                    // 解析中禁用：此时结果已置空、清空后若解析结果才回来，
+                    // 会出现「有结果但输入框是空的」矛盾状态
+                    enabled = !parsing,
+                ) { Text("清空") }
             }
         }
 

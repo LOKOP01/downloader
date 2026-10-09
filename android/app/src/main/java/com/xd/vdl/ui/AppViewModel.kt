@@ -68,8 +68,16 @@ class AppViewModel : ViewModel() {
         _message.value = null
     }
 
-    fun clearResult() {
+    /**
+     * 清空首页：解析结果、清晰度选择、输入框里的链接一起清掉。
+     *
+     * 以前只清 `_info`，链接还留在输入框里，用户点「清空」后会以为没生效
+     * （清完还得手动删一次链接）。这里一次清干净。
+     */
+    fun clearAll() {
         _info.value = null
+        _qualityIndex.value = 0
+        _link.value = ""
     }
 
     fun parse(activity: Activity) {
