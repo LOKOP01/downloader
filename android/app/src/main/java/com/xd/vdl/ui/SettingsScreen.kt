@@ -17,7 +17,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -46,6 +45,11 @@ import com.xd.vdl.core.Platform
 import com.xd.vdl.core.SaveSettings
 import com.xd.vdl.core.net.CookieStore
 import com.xd.vdl.core.net.Http
+import com.xd.vdl.ui.component.GkCard
+import com.xd.vdl.ui.component.GkDimens
+import com.xd.vdl.ui.component.GkPageTitle
+import com.xd.vdl.ui.component.GkSectionLabel
+import com.xd.vdl.ui.component.GkTextBadge
 
 @Composable
 fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
@@ -65,84 +69,76 @@ fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+            .padding(horizontal = GkDimens.screenPadding),
     ) {
-        Text(
-            "设置",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-        )
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(10.dp))
+        GkPageTitle("设置")
+        Spacer(Modifier.height(14.dp))
 
-        Card(Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(1.dp)) {
-            Column(Modifier.padding(16.dp)) {
-                Text("登录", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "从电脑浏览器取 Cookie 填入即可，Cookie 只保存在本机，" +
-                        "下次打开无需重填。高清晰度、受限内容需要对应平台的登录态。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(14.dp))
+        GkSectionLabel("登录")
+        GkCard {
+            Text(
+                "从电脑浏览器取 Cookie 填入即可，Cookie 只保存在本机，" +
+                    "下次打开无需重填。高清晰度、受限内容需要对应平台的登录态。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(4.dp))
 
-                platforms.forEachIndexed { i, p ->
-                    val st = status[p] ?: LoginStatus("", emptyList())
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(p.label, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                if (st.loggedIn) "已登录 · ${st.hit.joinToString("/")}"
-                                else if (st.hasCookie) "已填 Cookie（未见登录凭证）"
-                                else "未登录",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (st.loggedIn) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        TextButton(onClick = { onEditCookie(p) }) {
-                            Text(if (st.hasCookie) "修改" else "填写 Cookie")
-                        }
-                        if (st.hasCookie) {
-                            TextButton(onClick = {
-                                CookieStore.clear(ctx, p)
-                                vm.refreshLogin()
-                                vm.notify("已清除 ${p.label} 的 Cookie")
-                            }) { Text("清除") }
-                        }
+            platforms.forEachIndexed { i, p ->
+                val st = status[p] ?: LoginStatus("", emptyList())
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    GkTextBadge(p.label.take(1))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(p.label, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            if (st.loggedIn) "已登录 · ${st.hit.joinToString("/")}"
+                            else if (st.hasCookie) "已填 Cookie（未见登录凭证）"
+                            else "未登录",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (st.loggedIn) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    if (i < platforms.size - 1) {
-                        Spacer(Modifier.height(6.dp))
-                        HorizontalDivider()
-                        Spacer(Modifier.height(6.dp))
+                    TextButton(onClick = { onEditCookie(p) }) {
+                        Text(if (st.hasCookie) "修改" else "填写")
+                    }
+                    if (st.hasCookie) {
+                        TextButton(onClick = {
+                            CookieStore.clear(ctx, p)
+                            vm.refreshLogin()
+                            vm.notify("已清除 ${p.label} 的 Cookie")
+                        }) { Text("清除") }
                     }
                 }
+                if (i < platforms.size - 1) HorizontalDivider()
             }
         }
 
-        Spacer(Modifier.height(14.dp))
-
+        Spacer(Modifier.height(16.dp))
+        GkSectionLabel("下载位置")
         SaveLocationCard(vm)
 
-        Spacer(Modifier.height(14.dp))
-
-        Card(Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(1.dp)) {
-            Column(Modifier.padding(16.dp)) {
-                Text("关于", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                InfoLine("视频位置", SaveSettings.previewVideo(ctx))
-                InfoLine("图片位置", SaveSettings.previewImage(ctx))
-                InfoLine("压缩包位置", SaveSettings.previewArchive(ctx))
-                InfoLine("支持平台", "抖音 / B站 / X / 小红书 / Instagram / 禁漫")
-                InfoLine(
-                    "版本",
-                    "${BuildConfig.VERSION_NAME}（build ${BuildConfig.VERSION_CODE}）",
-                )
-            }
+        Spacer(Modifier.height(16.dp))
+        GkSectionLabel("关于")
+        GkCard {
+            InfoLine("视频位置", SaveSettings.previewVideo(ctx))
+            InfoLine("图片位置", SaveSettings.previewImage(ctx))
+            InfoLine("压缩包位置", SaveSettings.previewArchive(ctx))
+            InfoLine("支持平台", "抖音 / B站 / X / 小红书 / Instagram / 禁漫")
+            InfoLine(
+                "版本",
+                "${BuildConfig.VERSION_NAME}（build ${BuildConfig.VERSION_CODE}）",
+            )
         }
+
+        Spacer(Modifier.height(24.dp))
     }
 }
 
@@ -162,62 +158,58 @@ private fun SaveLocationCard(vm: AppViewModel) {
     // 保存后自增，触发重新读一遍（三个输入框的初值跟着走）
     var epoch by remember { mutableStateOf(0) }
 
-    Card(Modifier.fillMaxWidth(), elevation = CardDefaults.cardElevation(1.dp)) {
-        Column(Modifier.padding(16.dp)) {
-            Text("下载位置", style = MaterialTheme.typography.titleMedium)
-            Spacer(Modifier.height(4.dp))
+    GkCard {
+        Text(
+            "只改末级文件夹名即可，前面的大类目录（视频 / 图片 / 下载）由系统决定。" +
+                "视频与图片会归入相册对应分类，压缩包放在下载目录。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(12.dp))
+
+        DirField(
+            key = "video",
+            epoch = epoch,
+            label = "视频",
+            prefix = "Movies /",
+            initial = SaveSettings.videoDir(ctx),
+            onSave = { SaveSettings.setVideoDir(ctx, it); vm.notify("视频位置已更新") },
+            onChanged = { epoch += 1 },
+        )
+        Spacer(Modifier.height(10.dp))
+        DirField(
+            key = "image",
+            epoch = epoch,
+            label = "图片",
+            prefix = "Pictures /",
+            initial = SaveSettings.imageDir(ctx),
+            onSave = { SaveSettings.setImageDir(ctx, it); vm.notify("图片位置已更新") },
+            onChanged = { epoch += 1 },
+        )
+        Spacer(Modifier.height(10.dp))
+        DirField(
+            key = "archive",
+            epoch = epoch,
+            label = "压缩包",
+            prefix = "Download /",
+            initial = SaveSettings.archiveDir(ctx),
+            onSave = { SaveSettings.setArchiveDir(ctx, it); vm.notify("压缩包位置已更新") },
+            onChanged = { epoch += 1 },
+        )
+
+        Spacer(Modifier.height(12.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "只改末级文件夹名即可，前面的大类目录（视频 / 图片 / 下载）由系统决定。" +
-                    "视频与图片会归入相册对应分类，压缩包放在下载目录。",
-                style = MaterialTheme.typography.bodySmall,
+                "已下载的文件不会移动，改动只对之后的新任务生效。",
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.height(12.dp))
-
-            DirField(
-                key = "video",
-                epoch = epoch,
-                label = "视频",
-                prefix = "Movies /",
-                initial = SaveSettings.videoDir(ctx),
-                onSave = { SaveSettings.setVideoDir(ctx, it); vm.notify("视频位置已更新") },
-                onChanged = { epoch += 1 },
-            )
-            Spacer(Modifier.height(10.dp))
-            DirField(
-                key = "image",
-                epoch = epoch,
-                label = "图片",
-                prefix = "Pictures /",
-                initial = SaveSettings.imageDir(ctx),
-                onSave = { SaveSettings.setImageDir(ctx, it); vm.notify("图片位置已更新") },
-                onChanged = { epoch += 1 },
-            )
-            Spacer(Modifier.height(10.dp))
-            DirField(
-                key = "archive",
-                epoch = epoch,
-                label = "压缩包",
-                prefix = "Download /",
-                initial = SaveSettings.archiveDir(ctx),
-                onSave = { SaveSettings.setArchiveDir(ctx, it); vm.notify("压缩包位置已更新") },
-                onChanged = { epoch += 1 },
-            )
-
-            Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "已下载的文件不会移动，改动只对之后的新任务生效。",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = {
-                    SaveSettings.reset(ctx)
-                    epoch += 1
-                    vm.notify("已恢复默认位置")
-                }) { Text("恢复默认") }
-            }
+            TextButton(onClick = {
+                SaveSettings.reset(ctx)
+                epoch += 1
+                vm.notify("已恢复默认位置")
+            }) { Text("恢复默认") }
         }
     }
 }
@@ -312,7 +304,7 @@ private fun InfoLine(k: String, v: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 5.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
