@@ -13,8 +13,10 @@ from PySide6.QtWidgets import (QFrame, QGraphicsOpacityEffect, QHBoxLayout,
                                QLabel, QSizePolicy, QVBoxLayout, QWidget)
 from qfluentwidgets import (BodyLabel, CaptionLabel, CardWidget, StrongBodyLabel,
                             TitleLabel)
+from qfluentwidgets.common.config import qconfig
 from qfluentwidgets.common.font import getFont
-from qfluentwidgets.common.style_sheet import (CustomStyleSheet, setStyleSheet,
+from qfluentwidgets.common.style_sheet import (CustomStyleSheet, ThemeColor,
+                                               isDarkTheme, setStyleSheet,
                                                setThemeColor)
 
 # --------------------------------------------------------------------- 间距
@@ -35,6 +37,30 @@ CARD_PAD_H = 20
 CARD_PAD_V = 16
 CARD_GAP = 12          # 卡片内部块与块的间隔
 
+# --------------------------------------------------------------------- 圆角
+# 对齐 MXU 的四档（对应它的 --radius-sm/md/lg/xl）。
+RADIUS_SM = 6          # 徽章、标签这类小控件
+RADIUS_MD = 8          # 按钮、输入框
+RADIUS_LG = 12         # 卡片、面板
+RADIUS_XL = 16         # 大容器、对话框
+
+# --------------------------------------------------------------------- 标题栏
+# 对齐 MXU（它用的是 h-8 / w-12）：32px 高、右侧三个 48px 宽按钮。
+# 关闭键 hover 用 Tailwind red-500 —— MXU 里就是 `hover:bg-red-500 hover:text-white`。
+TITLEBAR_H = 32
+TITLEBAR_BTN_W = 48
+CLOSE_HOVER = "#EF4444"
+
+# --------------------------------------------------------------------- 标签栏
+# 对齐 MXU 的 TabBar（`src/components/TabBar.tsx`）：条高 **40px**（`h-10`）、
+# 底色 bg-secondary + 底部 1px 分隔线；单个标签 `min-w-[120px]`、`text-sm`，
+# 选中 `bg-primary + 强调色文字 + 2px 强调色下边框`，未选中 `bg-tertiary +
+# 次级文字`、hover 变 bg-hover。右侧工具按钮是 `p-2` 的圆角方块（32×32）。
+TABBAR_H = 40
+TABBAR_MIN_W = 120
+TABBAR_TOOL_W = 32      # 右侧工具按钮边长（MXU 是 p-2 + w-4 图标 = 32px）
+TABBAR_ICON = 16        # 工具按钮图标边长
+
 # --------------------------------------------------------------------- 字阶
 # 固定 px 尺度，5 级：11 / 12 / 14 / 18 / 24。工具型 UI 不做流体字号。
 FONT_MICRO = 11        # 最弱：单位、时间戳、占位提示
@@ -54,24 +80,40 @@ def font(size: int = FONT_BODY, weight=W_REGULAR) -> QFont:
 
 
 # --------------------------------------------------------------------- 颜色
-# 中性色整体偏冷（带一点蓝），避免纯中性灰的塑料感；(浅色, 深色) 二元组，
-# 顺序与 qfluentwidgets 的 setTextColor(light, dark) 一致。
+# 中性色阶对齐 MXU（MistEO/MXU，MaaEnd 的 GUI）：实为 Tailwind 的 zinc 灰阶。
+# (浅色, 深色) 二元组，顺序与 qfluentwidgets 的 setTextColor(light, dark) 一致。
 #
-# 每个值都按 WCAG AA（小字 ≥4.5:1）算过，底色取的是**真实合成值**而不是
-# 名义底色 —— 卡片是 rgba(255,255,255,13) 叠在页面底 #1e1e1e 上的 #292929。
-TEXT_PRIMARY = ("#1B1F27", "#EEF1F6")      # 16.5:1 / 13.4:1
-TEXT_SECONDARY = ("#5A6472", "#9BA5B4")    #  6.0:1 /  6.1:1
-TEXT_TERTIARY = ("#6B7480", "#8F99AB")     #  4.7:1 /  5.1:1
-TEXT_ACCENT = ("#0F6CBD", "#6CB8FF")       #  5.4:1 /  7.2:1
+# 注意深色底的三个层次和浅色是**反过来**的：深色下 bg-primary 近纯黑、
+# 面板比页面亮；浅色下页面是浅灰、面板纯白。照着抄别自己发挥。
+TEXT_PRIMARY = ("#18181B", "#FAFAFA")      # zinc-900 / zinc-50
+TEXT_SECONDARY = ("#52525B", "#A1A1AA")    # zinc-600 / zinc-400
+TEXT_TERTIARY = ("#71717A", "#71717A")     # zinc-500（两套同值，MXU 就这么写的）
+TEXT_ACCENT = ("#1A4A8E", "#8AB4FF")       # 强调文字/链接，取自深海蓝
+
+# 语义色**不跟着 MXU 抄**：它的 warning #f59e0b / error #ef4444 是给
+# 状态点那种小面积色块用的，当正文色在浅底上只有 2:1 上下，读不清。
+# 这里保留按 WCAG AA 算过的原值。
 SUCCESS = ("#0E7C4A", "#4ADE9B")
 WARNING = ("#B45309", "#F0B03C")
 DANGER = ("#C42B36", "#F2727C")
 
-# 容器与分隔。SURFACE_SUNKEN 是"下沉"的浅填充（封面槽、图标底板）；
-# HAIRLINE 是 1px 描边/分隔线。两个都只在卡片底上做很轻的一层，
-# 但必须真的看得见 —— 0.05 那档在截图里等于没有。
-SURFACE_SUNKEN = ("rgba(0,0,0,0.035)", "rgba(255,255,255,0.06)")
-HAIRLINE = ("rgba(0,0,0,0.14)", "rgba(255,255,255,0.15)")
+# 背景三级 + 交互态（对齐 MXU 的 bg.primary/secondary/tertiary/hover/active）。
+# 层次规则：页面底 = primary，卡片/面板/标题栏 = secondary，
+# 再往里一层（输入框、内嵌块）= tertiary。
+BG_PRIMARY = ("#FAFAFA", "#09090B")
+BG_SECONDARY = ("#FFFFFF", "#18181B")
+BG_TERTIARY = ("#F4F4F5", "#27272A")
+BG_HOVER = ("#E4E4E7", "#3F3F46")
+BG_ACTIVE = ("#D4D4D8", "#52525B")
+
+# 边框两级（对齐 MXU 的 border.default / border.strong）
+BORDER = ("#E4E4E7", "#27272A")
+BORDER_STRONG = ("#D4D4D8", "#3F3F46")
+
+# 兼容旧名：SURFACE_SUNKEN 是"下沉"的浅填充（封面槽、图标底板），
+# HAIRLINE 是 1px 描边/分隔线，两者分别指向新的三级底与边框。
+SURFACE_SUNKEN = BG_TERTIARY
+HAIRLINE = BORDER
 
 # 帧率徽章配色（≥50 绿 / 30 中性 / 更低橙）
 FPS_HIGH = ("rgba(22,163,74,0.18)", "#16A34A")
@@ -79,24 +121,30 @@ FPS_MID = ("rgba(128,128,128,0.18)", "#8A8F98")
 FPS_LOW = ("rgba(217,119,6,0.18)", "#D97706")
 
 # --------------------------------------------------------------------- 强调色
-# 全部主控件（PrimaryPushButton / ProgressBar / SwitchButton / 选中态 / 焦点框）
-# 都由这一个色相派生出来。选色约束来自 .impeccable.md：
-#   - 避开语义色：红（失败/删除）、琥珀（警告）、绿（成功）都不能当主色
-#   - 避开被点名的"AI 配色"：青 + 深色、紫蓝渐变、霓虹点缀
-#     （低饱和青在深色主题下会被拉成 #86e3ff 的亮青，正是这一档，已排除）
-#   - 暖玫 #D2405F 在浅色主题渲染成 #d2405f，跟"删除"的红几乎是同一个颜色，慎用
+# 对齐 MXU 的 9 套预设（默认深海蓝），色值直接取自 MXU 仓库的
+# `src/themes/presets/accents/*.json`，不自己发挥。
+#
+# 与旧约束的差异（旧值 blue/signal/indigo/magenta/rose 已移除以腾位置）：
+# 旧约束来自 .impeccable.md ——「避开语义色（红/琥珀/绿）、避开被点名的
+# AI 配色（青+深色、紫蓝渐变）、暖玫慎用」。MXU 的色板里有几支确实与
+# 成功/警告同色相（宝石绿、熔岩橙），按 MXU 来就先放下这条：语义状态靠
+# 图标 + 文案区分，不再依赖色相独占。
 #
 # 注意 qfluentwidgets 的 ThemeColor.color() 在深色主题里会把 v 强制拉到 1，
 # 所以「输入色」和「实际看到的色」不是一回事（如 #0078D4 → #29a2ff）。
 # 换色要真渲染出来看，别只看色值。
 ACCENTS = [
-    ("blue",    "默认蓝（Fluent 原生）", "#0078D4"),
-    ("signal",  "信号蓝",               "#2F6FED"),
-    ("indigo",  "靛蓝",                 "#5B5BD6"),
-    ("magenta", "品红",                 "#C7409E"),
-    ("rose",    "暖玫",                 "#D2405F"),
+    ("deepsea",  "深海蓝",   "#1A4A8E"),
+    ("emerald",  "宝石绿",   "#008B45"),
+    ("lava",     "熔岩橙",   "#E65A1E"),
+    ("titanium", "钛金属",   "#91969A"),
+    ("celadon",  "影青色",   "#97B6B0"),
+    ("rosegold", "流金粉",   "#C1A1A1"),
+    ("danxia",   "丹霞紫",   "#A58D92"),
+    ("cambrian", "寒武岩灰", "#3B4754"),
+    ("pearl",    "珍珠白",   "#D1D5DB"),
 ]
-DEFAULT_ACCENT = "indigo"
+DEFAULT_ACCENT = "deepsea"
 ACCENT_HEX = {key: hexv for key, _, hexv in ACCENTS}
 
 _accent = DEFAULT_ACCENT
@@ -118,6 +166,58 @@ def apply_accent(key: str) -> str:
 
 def accent_key() -> str:
     return _accent
+
+
+# ------------------------------------------------------------------ 主色提亮修正
+# qfluentwidgets 的 `ThemeColor.color()`（common/style_sheet.py）在深色主题下写死了：
+#
+#     if isDarkTheme():
+#         s *= 0.84
+#         v = 1              # ← 明度强制拉满
+#
+# 于是「输入什么色」和「深色下看到什么色」完全是两回事：MPXU 的深海蓝
+# `#1A4A8E`（V≈0.56）会被拉成亮蓝。**光改输入色补偿不回来**，因为 v 恒为 1。
+#
+# 这里把深色分支的 PRIMARY 直接改回色板原值，其余派生变体（DARK_*/LIGHT_*，
+# 用作 hover / pressed / 边框）仍按上游规则算，只把明度基准从 1 换成原始 v ——
+# 否则那些变体会比主色亮一大截，层次就反了。
+#
+# 代价：这是改第三方库的行为，库升级后要回来核对上面那段源码还在不在。
+# 保留原函数以便浅色分支走原逻辑。
+_ORIG_THEME_COLOR = ThemeColor.color
+
+
+def _patched_theme_color(self):
+    if not isDarkTheme():
+        return _ORIG_THEME_COLOR(self)
+
+    base = QColor(qconfig.get(qconfig._cfg.themeColor))
+    if self == ThemeColor.PRIMARY:
+        return base                      # MXU：深色下主色就是色板原值
+
+    h, s, v, _ = base.getHsvF()
+    s *= 0.84
+    vv = v
+    if self == ThemeColor.DARK_1:
+        vv *= 0.9
+    elif self == ThemeColor.DARK_2:
+        s *= 0.977
+        vv *= 0.82
+    elif self == ThemeColor.DARK_3:
+        s *= 0.95
+        vv *= 0.7
+    elif self == ThemeColor.LIGHT_1:
+        s *= 0.92
+    elif self == ThemeColor.LIGHT_2:
+        s *= 0.78
+    elif self == ThemeColor.LIGHT_3:
+        s *= 0.65
+    out = QColor()
+    out.setHsvF(h, min(s, 1.0), min(vv, 1.0))
+    return out
+
+
+ThemeColor.color = _patched_theme_color
 
 
 # --------------------------------------------------------------------- 动效
@@ -232,8 +332,11 @@ def card(parent, pad_h: int = CARD_PAD_H, pad_v: int = CARD_PAD_V,
     """卡片 + 内容布局，返回 (card, layout)。
 
     统一 padding/gap，免得每个页面各写一套 20,16,20,16。
+    圆角显式设成 RADIUS_LG：qfluentwidgets 的 CardWidget 默认只有 5px，
+    太方；MXU 的面板是 `rounded-lg`（12px）。
     """
     c = CardWidget(parent)
+    c.setBorderRadius(RADIUS_LG)
     lay = QVBoxLayout(c)
     lay.setContentsMargins(pad_h, pad_v, pad_h, pad_v)
     lay.setSpacing(gap)

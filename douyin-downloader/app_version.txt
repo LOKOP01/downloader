@@ -4,8 +4,8 @@
 #
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 8, 10, 20),
-    prodvers=(1, 8, 10, 20),
+    filevers=(1, 8, 10, 21),
+    prodvers=(1, 8, 10, 21),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -20,12 +20,12 @@ VSVersionInfo(
           u'080404b0',
           [StringStruct(u'CompanyName', u'个人项目'),
            StringStruct(u'FileDescription', u'抖音 / X / Instagram / B站 / 小红书 / Iwara / Pornhub / hanime1 / 禁漫 下载器'),
-           StringStruct(u'FileVersion', u'1.8.10.20'),
+           StringStruct(u'FileVersion', u'1.8.10.21'),
            StringStruct(u'InternalName', u'douyin-downloader'),
            StringStruct(u'LegalCopyright', u'仅供个人学习与备份使用'),
            StringStruct(u'OriginalFilename', u'视频下载器.exe'),
            StringStruct(u'ProductName', u'视频下载器'),
-           StringStruct(u'ProductVersion', u'1.8.10.20')])
+           StringStruct(u'ProductVersion', u'1.8.10.21')])
       ]),
     VarFileInfo([VarStruct(u'Translation', [2052, 1200])])
   ]
