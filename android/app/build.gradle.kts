@@ -12,8 +12,8 @@ android {
         applicationId = "com.xd.vdl"
         minSdk = 24
         targetSdk = 34
-        versionCode = 32
-        versionName = "1.0.31"
+        versionCode = 33
+        versionName = "1.0.32"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -60,6 +60,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
+    // org.json 在单测里是 android.jar 的桩（调用即抛 Stub!），补一份真实实现，
+    // 否则解析响应体的纯函数没法测
+    testImplementation("org.json:json:20240303")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 

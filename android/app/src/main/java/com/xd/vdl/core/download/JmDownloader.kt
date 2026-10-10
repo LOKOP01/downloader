@@ -56,6 +56,9 @@ object JmDownloader {
     /** 章节目录（每章一次 `/chapter` 小请求）也并发几路，多章本子不必一章章等 */
     private const val PLAN_CONCURRENCY = 4
 
+    /** 判断「这是不是一页图」用；官方打包直链拿回来的包也要按这个数一数 */
+    private val IMAGE_EXT = listOf(".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif")
+
     /** scramble_id 逐章可能不同，但同一章反复取没意义 —— 缓存起来（预览也共用） */
     private val scrambleIds = java.util.concurrent.ConcurrentHashMap<String, String>()
 
@@ -89,6 +92,12 @@ object JmDownloader {
             "禁漫开始下载《${info.title}》${info.jmKind} ${info.jmId} " +
                 "共 ${chapters.size} 章",
         )
+
+        // 0) 先试官方「整本打包直链」：一次请求把整本拿回来，比逐张快一个数量级。
+        //    只有本子有这接口，而且要登录；取不到就静默往下走逐张，不算失败。
+        if (info.jmKind == "album" && JmDownloadMode.officialZipFirst(ctx)) {
+            if (tryOfficialZip(ctx, info, onProgress, onChapter, onZip)) return@withContext
+        }
 
         // 1) 各章的图片文件名都拉出来（并发），这样总进度才是准的
         onChapter("正在获取目录…")
@@ -168,6 +177,85 @@ object JmDownloader {
             throw e
         }
     }
+
+    /**
+     * 试官方「整本打包直链」。
+     *
+     * 成功（真的拿到一个里面带图片的 zip，并已交给 [onZip]）返回 true；
+     * 未配置 Cookie / 未登录 / 接口异常 / 拿回来的不是压缩包 → 返回 false，
+     * 由调用方回退到逐张下载。**任何一步都不抛异常**，回退是正常路径。
+     *
+     * 进度只能按字节报 —— 那边只有一个文件，没有「第几张」可数。文件大小由
+     * Content-Length 给，所以进度条是能填满的。
+     */
+    private suspend fun tryOfficialZip(
+        ctx: Context,
+        info: VideoInfo,
+        onProgress: (done: Int, total: Int) -> Unit,
+        onChapter: (text: String) -> Unit,
+        onZip: (file: File, entryCount: Int) -> Unit,
+    ): Boolean {
+        onChapter("正在申请官方打包…")
+        val meta = JmClient.albumDownload(info.jmId)
+        if (meta == null) {
+            AppLog.i("禁漫打包接口不可用，改为逐张下载")
+            return false
+        }
+        if (!meta.usable) {
+            // status == "0" 就是服务端说的「請先登入」
+            AppLog.i("禁漫官方打包需登录（loggedIn=${meta.loggedIn}），改为逐张下载")
+            onChapter("未登录禁漫，改为逐张下载…")
+            return false
+        }
+
+        val url = if (meta.downloadUrl.startsWith("http")) {
+            meta.downloadUrl
+        } else {
+            JmClient.apiBase() + "/" + meta.downloadUrl.trimStart('/')
+        }
+        val zip = File.createTempFile("jmzip", ".zip", ctx.cacheDir)
+        return try {
+            onChapter("官方打包下载中…" + (if (meta.fileSize.isNotEmpty()) " ${meta.fileSize}" else ""))
+            AppLog.i("禁漫走官方打包直链：${meta.title} ${meta.fileSize} $url")
+            // 阻塞下载里没法直接读协程上下文（`coroutineContext` 是 suspend 属性，
+            // 在普通 lambda 里取不到），先把 Job 抓出来，回调里拿它判取消
+            val scopeJob = coroutineContext[kotlinx.coroutines.Job]
+            JmClient.downloadTo(url, zip) { done, total ->
+                scopeJob?.ensureActive()
+                onProgress(
+                    done.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                )
+            }
+            val entries = countImageEntries(zip)
+            if (entries <= 0) {
+                // 可能是一段 HTML 错误页，也可能是空包 —— 都不能当成品
+                AppLog.w("禁漫打包直链拿到的不是有效压缩包（${zip.length()} 字节），改为逐张下载")
+                zip.delete()
+                false
+            } else {
+                AppLog.i("禁漫官方打包完成：$entries 张 / ${zip.length()} 字节")
+                onZip(zip, entries)
+                true
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            zip.delete()
+            throw e
+        } catch (e: Exception) {
+            AppLog.w("禁漫打包直链失败（${e.javaClass.simpleName}: ${e.message}），改为逐张下载")
+            zip.delete()
+            false
+        }
+    }
+
+    /** 数一数 zip 里有几个图片条目（只看中央目录，不解压） */
+    internal fun countImageEntries(zip: File): Int = runCatching {
+        java.util.zip.ZipFile(zip).use { zf ->
+            zf.entries().asSequence().count { e ->
+                !e.isDirectory && IMAGE_EXT.any { e.name.lowercase().endsWith(it) }
+            }
+        }
+    }.getOrDefault(0)
 
     /** 并发拉各章的图片文件名列表，返回顺序与 [chapters] 一致 */
     private suspend fun fetchPlan(chapters: List<Pair<String, String>>): List<List<String>> =

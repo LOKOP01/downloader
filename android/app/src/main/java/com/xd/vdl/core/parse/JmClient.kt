@@ -1,10 +1,12 @@
 package com.xd.vdl.core.parse
 
 import com.xd.vdl.core.AppLog
+import com.xd.vdl.core.Platform
 import com.xd.vdl.core.net.Http
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -154,6 +156,7 @@ object JmClient {
             try {
                 val b = Request.Builder().url(url)
                 headers.forEach { (k, v) -> b.header(k, v) }
+                applyCookie(b)
                 val r = client.newCall(b.build()).execute()
                 val body = r.use { it.body?.string().orEmpty() }
                 if (!r.isSuccessful) {
@@ -211,6 +214,52 @@ object JmClient {
     private fun urlEnc(s: String): String =
         java.net.URLEncoder.encode(s, "UTF-8")
 
+    // ------------------------------------------------------------------ //
+    // Cookie（官方打包直链必须登录）
+    // ------------------------------------------------------------------ //
+
+    /**
+     * 用户在设置页填的禁漫 Cookie（`AVS` 等）。
+     *
+     * 以前这里一律不带 Cookie —— 普通翻页/看本子确实不需要；但官方的
+     * `/album_download_2` 必须登录，所以现在统一带上。头部值只能是可见 ASCII，
+     * 混进非 ASCII（从浏览器粘过来常有）会被 OkHttp 直接拒掉，所以先过滤。
+     */
+    private fun cookieHeader(): String =
+        runCatching { Http.cookieFor(Platform.JMCOMIC) }.getOrNull().orEmpty()
+            .filter { it.code in 0x20..0x7E }
+
+    private fun applyCookie(b: Request.Builder) {
+        val ck = cookieHeader()
+        if (ck.isNotEmpty()) b.header("Cookie", ck)
+    }
+
+    // ------------------------------------------------------------------ //
+    // 官方「整本打包」直链
+    // ------------------------------------------------------------------ //
+
+    /**
+     * 问服务端要「整本打包」的直链（返回结构见 [JmAlbumZip]）。
+     *
+     * 接口名出自官方 App（Capacitor + React）的 main.js：
+     * `API_ALBUM_DOWNLOAD: "album_download_2"`，调用形如
+     * `GET <api>/album_download_2/<album_id>`，返回 `{status, title, fileSize, img_url, download_url}`。
+     *
+     * 两个实测结论：
+     *  1. 未登录时返回 `{"status":"0","msg":"請先登入"}` —— **接口本身是通的**，只是要登录态。
+     *  2. 官方 App 页面上那个「算数验证码」是**前端本地生成**的（problem/answer 都在 JS 里
+     *     当场算出来再比对），服务端既不签发也不校验，所以这里完全不用处理它。
+     *
+     * 失败（网络/未登录）返回 null，调用方回退逐张下载。
+     */
+    internal fun albumDownload(albumId: String): JmAlbumZip? = runCatching {
+        JmAlbumZip.parse(apiGet("/album_download_2/$albumId").first)
+    }.onFailure {
+        AppLog.w("禁漫打包接口不可用：${it.javaClass.simpleName}: ${it.message}")
+    }.getOrNull()
+
+    // ------------------------------------------------------------------ //
+
     /** 取 scramble_id：这个接口返回 HTML，用另一个密钥，且**不解密** */
     internal fun fetchScrambleId(photoId: String): String {
         val body = apiGet(
@@ -260,6 +309,45 @@ object JmClient {
             url.contains("jmapiproxy", ignoreCase = true) ||
             url.contains("jmapinode", ignoreCase = true)
 
+    /**
+     * 流式把 [url] 写到 [dest]，边写边回报 (已下载, 总长)。总长未知时为 0。
+     *
+     * 与 [fetchImage] 的区别是**不把整个响应读进内存**：整本打包的压缩包动辄几十 MB，
+     * 而且需要进度，所以走流。
+     *
+     * [onProgress] 里可以抛 [kotlinx.coroutines.CancellationException] 来中止 ——
+     * 阻塞读写里没法直接查协程状态，由调用方在回调里 `ensureActive()`。
+     */
+    internal fun downloadTo(url: String, dest: File, onProgress: (Long, Long) -> Unit): Long {
+        val b = Request.Builder().url(url).header("User-Agent", UA_APP)
+        b.header("Accept", "*/*")
+        b.header("X-Requested-With", "com.JMComic3.app")
+        b.header("Referer", "https://${DOMAINS.first()}/")
+        applyCookie(b)
+        client.newCall(b.build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
+            val body = resp.body ?: throw IOException("响应为空")
+            val total = body.contentLength()
+            body.byteStream().use { ins ->
+                dest.outputStream().buffered().use { out ->
+                    val buf = ByteArray(64 * 1024)
+                    var done = 0L
+                    while (true) {
+                        val n = ins.read(buf)
+                        if (n < 0) break
+                        out.write(buf, 0, n)
+                        done += n
+                        onProgress(done, if (total > 0) total else 0L)
+                    }
+                    return done
+                }
+            }
+        }
+    }
+
+    /** 当前生效的接口域名，用于补全可能是相对路径的 `download_url` */
+    internal fun apiBase(): String = "https://" + liveDomain.ifEmpty { DOMAINS.first() }
+
     /** 给界面层用的图片字节抓取（封面等），自带禁漫 UA / Referer / 宽松 SSL */
     internal fun fetchImageBytes(url: String): ByteArray? = runCatching {
         fetchImage(url)
@@ -271,6 +359,7 @@ object JmClient {
      */
     internal fun fetchImage(url: String): ByteArray {
         val b = Request.Builder().url(url).header("User-Agent", UA_APP)
+        applyCookie(b)
         b.header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
         b.header("X-Requested-With", "com.JMComic3.app")
         b.header("Referer", "https://${DOMAINS.first()}/")

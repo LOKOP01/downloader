@@ -21,6 +21,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +44,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.xd.vdl.BuildConfig
 import com.xd.vdl.core.Platform
 import com.xd.vdl.core.SaveSettings
+import com.xd.vdl.core.download.JmDownloadMode
 import com.xd.vdl.core.net.CookieStore
 import com.xd.vdl.core.net.Http
 import com.xd.vdl.ui.component.GkCard
@@ -126,6 +128,10 @@ fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
         SaveLocationCard(vm)
 
         Spacer(Modifier.height(16.dp))
+        GkSectionLabel("禁漫下载")
+        JmModeCard(vm)
+
+        Spacer(Modifier.height(16.dp))
         GkSectionLabel("关于")
         GkCard {
             InfoLine("视频位置", SaveSettings.previewVideo(ctx))
@@ -139,6 +145,45 @@ fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
         }
 
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+/**
+ * 禁漫下载方式。
+ *
+ * 官方有个「整本打包」接口（`/album_download_2/<本子id>`），一次请求就能把整本拿回来，
+ * 比逐张下载快一个数量级 —— 但**必须登录**（未登录返回 `請先登入`），而且进度只能按
+ * 字节走。关掉它就始终逐张下载：进度按张数增长，未登录也能用。
+ */
+@Composable
+private fun JmModeCard(vm: AppViewModel) {
+    val ctx = LocalContext.current
+    var on by remember { mutableStateOf(JmDownloadMode.officialZipFirst(ctx)) }
+
+    GkCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("优先用官方打包直链", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    if (on) {
+                        "已登录禁漫时一次请求下完，最快；未登录会自动退回逐张下载"
+                    } else {
+                        "始终逐张下载并打包（进度按张数，未登录也能用）"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(
+                checked = on,
+                onCheckedChange = {
+                    on = it
+                    JmDownloadMode.setOfficialZipFirst(ctx, it)
+                    vm.notify(if (it) "禁漫：优先官方打包直链" else "禁漫：始终逐张下载")
+                },
+            )
+        }
     }
 }
 
