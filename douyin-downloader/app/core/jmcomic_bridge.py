@@ -299,6 +299,170 @@ def fetch_cover_bytes(album_id: str, cookie: str = "") -> bytes:
     return b""
 
 
+def unscramble_jm_image(src, num: int):
+    """按 JM 的切片规则还原整图（num 段逆序拼接）。
+
+    规则与 jmcomic 的 `JmImageTool.decode_and_save` 完全一致（同样的 y_src / y_dst
+    推导），这里抽出来是为了能在无网络的前提下离线自测 —— 上游那个函数只能往
+    文件里写，没法直接拿回图像对象。
+    """
+    if num is None or num <= 1:
+        return src
+    import math
+
+    from PIL import Image
+    width, height = src.size
+    out = Image.new("RGB", (width, height))
+    over = height % num
+    for i in range(num):
+        move = math.floor(height / num)
+        y_src = height - (move * (i + 1)) - over
+        y_dst = move * i
+        if i == 0:
+            move += over
+        else:
+            y_dst += over
+        out.paste(src.crop((0, y_src, width, y_src + move)),
+                  (0, y_dst, width, y_dst + move))
+    return out
+
+
+def decode_jm_image(image_detail, content: bytes, num: "int | None" = None) -> bytes:
+    """把禁漫原图解码成可直接显示的 PNG 字节。
+
+    JM 会防爬：当该图的 aid >= 本子的 scramble_id 时，整图被横向切成 num 段并
+    逆序拼接过，直出就是错版的。`num` 由 jmcomic 的段数表算出（0 表示没打乱）。
+    输出统一转 PNG —— 预览不该在压过的 jpg 上再压一次，否则漫画上的小字会糊。
+    """
+    import io
+
+    from PIL import Image
+    from jmcomic import JmImageTool
+
+    src = Image.open(io.BytesIO(content))
+    src.load()
+    if num is None:
+        try:
+            num = JmImageTool.get_num_by_detail(image_detail)
+        except Exception:  # noqa: BLE001 - 段数算不出来就按原图显示
+            num = 0
+    src = unscramble_jm_image(src, num)
+    if src.mode not in ("RGB", "L"):
+        src = src.convert("RGB")
+    buf = io.BytesIO()
+    src.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def _photo_image_list(photo) -> list:
+    """一话的全部页 —— 只读已抓到的 page_arr，不再发请求。"""
+    pages = []
+    names = getattr(photo, "page_arr", None) or []
+    for i in range(len(names)):
+        try:
+            pages.append(photo.create_image_detail(i))
+        except Exception:  # noqa: BLE001 - 单页构造失败不该拖垮整话
+            continue
+    return pages
+
+
+class JmPreview:
+    """禁漫在线预览会话：按「话」懒加载图片列表，按页取原图并解码。
+
+    封面之外的页都在服务器上，而且必须解码，所以不能像普通图集那样直接把 URL
+    丢给 QNetworkAccessManager；这里统一走 jmcomic 的客户端。
+
+    一话 = 一次 `get_photo_detail` 请求。拿到 `page_arr` 后本地就能构造出每页的
+    下载地址，所以「翻到新的一话」只花一次请求，翻页本身只花一次图片请求。
+    本子（album）的章节列表来自 `get_album_detail`，不预取每一话。
+    """
+
+    _CACHE_MAX = 8      # 解码结果缓存：来回翻页不用重新下载/解码
+
+    def __init__(self, spec: str, cookie: str = ""):
+        raw = (spec or "").replace("jmcomic://", "")
+        kind, _, jmid = raw.partition("/")
+        self.kind = (kind or "album").strip().lower()
+        self.jmid = (jmid or "").strip()
+        if not self.jmid:
+            raise ParseError(f"无效的禁漫地址：{spec}")
+        self.cookie = cookie
+        self._lock = threading.Lock()
+        self._client = None
+        self._ids: list = []        # 每话的 photo_id（单章节模式只有一个）
+        self._titles: list = []     # 每话标题
+        self._pages: dict = {}      # 话下标 -> [JmImageDetail]
+        self._cache: "dict[tuple, bytes]" = {}
+        self._open()
+
+    # ------------------------------------------------------------------ 打开
+    def _open(self) -> None:
+        import tempfile
+        option = build_option(tempfile.gettempdir(), self.cookie, retry_times=2)
+        self._client = option.new_jm_client()
+        if self.kind == "photo":
+            photo = self._client.get_photo_detail(self.jmid, fetch_album=True)
+            self._ids = [self.jmid]
+            self._titles = [str(getattr(photo, "name", "") or f"JM{self.jmid}")]
+            self._pages[0] = _photo_image_list(photo)
+            return
+        album = self._client.get_album_detail(self.jmid)
+        episodes = list(getattr(album, "episode_list", None) or [])
+        if not episodes:
+            # 没有章节的本子自成一话
+            episodes = [(self.jmid, "1", getattr(album, "name", "") or "")]
+        for item in episodes:
+            fields = list(item)
+            pid = str(fields[0]) if fields else self.jmid
+            title = str(fields[2]) if len(fields) > 2 else ""
+            self._ids.append(pid)
+            self._titles.append(title or f"JM{pid}")
+
+    # ------------------------------------------------------------------ 查询
+    @property
+    def chapter_count(self) -> int:
+        return len(self._ids)
+
+    def chapter_title(self, index: int) -> str:
+        if 0 <= index < len(self._titles):
+            return self._titles[index]
+        return ""
+
+    def page_count(self, chapter: int) -> int:
+        """该话的页数；没加载过就先加载（一次请求）。"""
+        return len(self._ensure(chapter))
+
+    def _ensure(self, chapter: int) -> list:
+        with self._lock:
+            if chapter in self._pages:
+                return self._pages[chapter]
+            photo_id = self._ids[chapter]
+        photo = self._client.get_photo_detail(photo_id, fetch_album=False)
+        pages = _photo_image_list(photo)
+        with self._lock:
+            self._pages[chapter] = pages
+        return pages
+
+    # ------------------------------------------------------------------ 取页
+    def page_bytes(self, chapter: int, page: int) -> bytes:
+        """取「第 chapter 话第 page 页」的 PNG 字节。"""
+        key = (chapter, page)
+        with self._lock:
+            hit = self._cache.get(key)
+        if hit is not None:
+            return hit
+        images = self._ensure(chapter)
+        image = images[page]
+        resp = self._client.get_jm_image(image.download_url)
+        resp.require_success()
+        data = decode_jm_image(image, resp.content)
+        with self._lock:
+            if len(self._cache) >= self._CACHE_MAX:
+                self._cache.pop(next(iter(self._cache)))
+            self._cache[key] = data
+        return data
+
+
 def download_jmcomic(spec: str, save_dir: str, cookie: str = "",
                      cancel: Optional[threading.Event] = None,
                      progress_cb: Optional[Callable[[int, int], None]] = None

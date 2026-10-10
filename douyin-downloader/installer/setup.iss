@@ -3,7 +3,7 @@
 ; 产物：dist\视频下载器-<version>-setup.exe
 
 #define MyAppName "视频下载器"
-#define MyAppVersion "1.8.10.21"
+#define MyAppVersion "1.8.10.22"
 #define MyAppPublisher "个人项目"
 #define MyAppExeName "视频下载器.exe"
 
@@ -14,9 +14,9 @@ AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppCopyright=仅供个人学习与备份使用
-VersionInfoVersion=1.8.10.21
+VersionInfoVersion=1.8.10.22
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=1.8.10.21
+VersionInfoProductVersion=1.8.10.22
 VersionInfoDescription={#MyAppName} 安装程序
 VersionInfoCopyright=仅供个人学习与备份使用
 DefaultDirName={localappdata}\Programs\{#MyAppName}

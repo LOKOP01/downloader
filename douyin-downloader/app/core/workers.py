@@ -167,6 +167,57 @@ class LoginWorker(QThread):
             self.done.emit(False, f"登录窗口异常：{e}")
 
 
+class JmPreviewOpenWorker(QThread):
+    """建立禁漫预览会话并取第一页。
+
+    首次打开要连服务器拿本子目录，还要下第一页原图并解码，都在后台做，
+    否则界面会白等好几秒。
+    """
+    opened = Signal(object, int, int, bytes)   # session, 话数, 首话页数, 首页 PNG
+    failed = Signal(str)
+
+    def __init__(self, spec: str, cookie: str = "", parent=None):
+        super().__init__(parent)
+        self.spec = spec
+        self.cookie = cookie
+
+    def run(self):
+        from .jmcomic_bridge import JmPreview
+        try:
+            session = JmPreview(self.spec, self.cookie)
+            pages = session.page_count(0)
+            self.opened.emit(session, session.chapter_count, pages,
+                             session.page_bytes(0, 0))
+        except Exception as e:  # noqa: BLE001
+            log.exception("禁漫预览打开失败")
+            self.failed.emit(f"禁漫预览打不开：{e}")
+
+
+class JmPreviewPageWorker(QThread):
+    """取禁漫预览的某一页（必要时先把该话的图片列表拉下来）"""
+    loaded = Signal(int, int, int, bytes)   # 话下标, 页下标, 该话页数, PNG
+    failed = Signal(str)
+
+    def __init__(self, session, chapter: int, page: int, parent=None):
+        super().__init__(parent)
+        self.session = session
+        self.chapter = chapter
+        self.page = page
+
+    def run(self):
+        try:
+            total = self.session.page_count(self.chapter)
+            # 跨话回退时页号是「-1 = 最后一页」的占位（上一话有多少页，
+            # 得先把这一话拉下来才知道），这里统一收敛到合法范围。
+            page = total - 1 if self.page < 0 else min(self.page, total - 1)
+            page = max(0, page)
+            self.loaded.emit(self.chapter, page, total,
+                             self.session.page_bytes(self.chapter, page))
+        except Exception as e:  # noqa: BLE001
+            log.exception("禁漫预览取页失败")
+            self.failed.emit(f"这一页取不到：{e}")
+
+
 class CoverWorker(QThread):
     """加载封面图片字节"""
     loaded = Signal(bytes)

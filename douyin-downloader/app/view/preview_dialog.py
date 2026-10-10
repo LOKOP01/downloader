@@ -16,6 +16,17 @@ from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPushButton,
 from ..core.domain import needs_cookie_for_url
 from ..core.downloader import headers_for
 from ..core.models import clean_cookie
+from ..core.workers import JmPreviewOpenWorker, JmPreviewPageWorker
+
+# 后台线程活到自然结束：窗口关掉时线程可能还在跑，跟着窗口一起析构会触发
+# 「QThread: Destroyed while thread is still running」并把进程带崩。
+_LIVE_WORKERS = set()
+
+
+def _keep(worker):
+    _LIVE_WORKERS.add(worker)
+    worker.finished.connect(lambda: _LIVE_WORKERS.discard(worker))
+    return worker
 
 
 def media_headers(url, cookies="", byte_range=""):
@@ -164,6 +175,14 @@ class PreviewDialog(QDialog):
         self._audio_player = None
         self._network = QNetworkAccessManager(self)
         self._original_pix = QPixmap()
+        # 禁漫预览状态：会话由后台线程建好后回填
+        self._jm = None
+        self._jm_cover = cover
+        self._jm_chapter = 0
+        self._jm_page = 0
+        self._jm_pages = 0
+        self._jm_chapters = 0
+        self._jm_busy = False
         self.setWindowTitle("下载前预览")
         self.resize(760, 640)
         layout = QVBoxLayout(self)
@@ -193,11 +212,7 @@ class PreviewDialog(QDialog):
         layout.addLayout(actions)
         if info.is_image:
             if info.source == "jmcomic":
-                self.detail.setText("本子封面预览")
-                if cover and not cover.isNull():
-                    self._show_image(cover)
-                else:
-                    self.stage.setText("封面尚未加载")
+                self._setup_jm(info, cover)
             else:
                 prev = QPushButton("上一张", self)
                 next_image = QPushButton("下一张", self)
@@ -319,6 +334,112 @@ class PreviewDialog(QDialog):
         self._original_pix = pix
         self.stage.setPixmap(pix.scaled(self.stage.size(), Qt.KeepAspectRatio,
                                         Qt.SmoothTransformation))
+
+    # ------------------------------------------------------------------ 禁漫
+    # 禁漫的封面之外的页都在服务器上、而且原图是切片逆序混淆过的（防爬），
+    # 没法像普通图集那样把 URL 交给 QNetworkAccessManager 直接拉出来看。
+    # 这里走 core.jmcomic_bridge.JmPreview：逐页取回原图 + 解码成 PNG，
+    # 取页动作全部放后台线程，避免联网时界面卡住。
+    def _setup_jm(self, info, cover):
+        self.detail.setText("内容预览（内容页需联网逐页取回）")
+        self.stage.setText("正在连接禁漫…")
+        self.prevButton = QPushButton("上一页", self)
+        self.nextButton = QPushButton("下一页", self)
+        self.counter = QLabel("加载中…", self)
+        self.prevButton.clicked.connect(lambda: self._jm_go(-1))
+        self.nextButton.clicked.connect(lambda: self._jm_go(1))
+        self.controls.addWidget(self.prevButton)
+        self.controls.addStretch()
+        self.controls.addWidget(self.counter)
+        self.controls.addStretch()
+        self.controls.addWidget(self.nextButton)
+        self._jm_set_busy(True)
+        self.status.setText("首次打开要拉本子目录和第一页，稍等")
+        worker = _keep(JmPreviewOpenWorker(info.play_url, self.cookies))
+        worker.opened.connect(self._jm_opened)
+        worker.failed.connect(self._jm_failed)
+        worker.start()
+
+    def _jm_set_busy(self, busy):
+        self._jm_busy = bool(busy)
+        for name in ("prevButton", "nextButton"):
+            button = getattr(self, name, None)
+            if button is not None:
+                button.setEnabled(not busy)
+        if not busy:
+            self._jm_refresh()
+
+    def _jm_opened(self, session, chapters, pages, data):
+        self._jm = session
+        self._jm_chapters = max(1, int(chapters or 1))
+        self._jm_pages = max(1, int(pages or 1))
+        self._jm_chapter = 0
+        self._jm_page = 0
+        self.status.setText("")
+        self._jm_show(data)
+        self._jm_set_busy(False)
+
+    def _jm_failed(self, message):
+        self._jm_set_busy(False)
+        self.status.setText(message)
+        if self._jm is None and self._jm_cover is not None \
+                and not self._jm_cover.isNull():
+            # 内容拉不到就退回封面，至少让用户看到这本是什么
+            self._show_image(self._jm_cover)
+            self.detail.setText("内容读取失败，仅显示封面")
+
+    def _jm_show(self, data) -> bool:
+        pix = QPixmap()
+        if not data or not pix.loadFromData(data):
+            self.stage.setText("这一页解不出来")
+            return False
+        self._show_image(pix)
+        return True
+
+    def _jm_refresh(self):
+        if self._jm is None:
+            return
+        if self._jm_chapters > 1:
+            title = self._jm.chapter_title(self._jm_chapter)
+            head = f"第 {self._jm_chapter + 1}/{self._jm_chapters} 话" + (
+                f" {title}" if title else "")
+            self.counter.setText(f"{head} · {self._jm_page + 1}/{self._jm_pages} 页")
+        else:
+            self.counter.setText(f"{self._jm_page + 1}/{self._jm_pages}")
+        at_first = self._jm_chapter == 0 and self._jm_page == 0
+        at_last = (self._jm_chapter >= self._jm_chapters - 1
+                   and self._jm_page >= self._jm_pages - 1)
+        self.prevButton.setEnabled(not self._jm_busy and not at_first)
+        self.nextButton.setEnabled(not self._jm_busy and not at_last)
+
+    def _jm_go(self, step):
+        if self._jm is None or self._jm_busy:
+            return
+        chapter, page = self._jm_chapter, self._jm_page + step
+        if page < 0:
+            if chapter == 0:
+                return
+            chapter, page = chapter - 1, -1      # -1 = 该话最后一页，页数由后台定
+        elif page >= self._jm_pages:
+            if chapter >= self._jm_chapters - 1:
+                return
+            chapter, page = chapter + 1, 0
+        self._jm_request(chapter, page)
+
+    def _jm_request(self, chapter, page):
+        self._jm_set_busy(True)
+        self.status.setText("正在取页…")
+        worker = _keep(JmPreviewPageWorker(self._jm, chapter, page))
+        worker.loaded.connect(self._jm_loaded)
+        worker.failed.connect(self._jm_failed)
+        worker.start()
+
+    def _jm_loaded(self, chapter, page, total, data):
+        self._jm_chapter, self._jm_page = chapter, page
+        self._jm_pages = max(1, int(total or 1))
+        self.status.setText("")
+        self._jm_show(data)
+        self._jm_set_busy(False)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
