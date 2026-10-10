@@ -146,7 +146,7 @@ class _ToolButton(QWidget):
         drawIcon(self._icon, painter, QRect(int(x), int(y), side, side))
 
 
-class MxuTabBar(QWidget):
+class AppTabBar(QWidget):
     """顶部标签栏。
 
     tabChanged(int) 在用户点击标签时发出，由主窗口负责真正的页面切换。
@@ -158,7 +158,7 @@ class MxuTabBar(QWidget):
         """tabs: [(key, 显示文字), ...]"""
         super().__init__(parent)
         self.setFixedHeight(D.TABBAR_H)
-        self.setObjectName("mxuTabBar")
+        self.setObjectName("appTabBar")
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(0, 0, 8, 0)

@@ -26,7 +26,7 @@ def _color(token) -> QColor:
     return QColor(token[1] if isDarkTheme() else token[0])
 
 
-class MxuTitleBar(TitleBar):
+class AppTitleBar(TitleBar):
     """32px 紧凑标题栏"""
 
     def __init__(self, parent):

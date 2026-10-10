@@ -14,9 +14,9 @@ from .view.batch_interface import BatchInterface
 from .view.home_interface import HomeInterface
 from .view.perf import tune_scroll_areas
 from .view.setting_interface import SettingInterface
-from .view.tab_bar import MxuTabBar
+from .view.tab_bar import AppTabBar
 from .view.task_interface import TaskInterface
-from .view.title_bar import MxuTitleBar
+from .view.title_bar import AppTitleBar
 
 
 def resource_path(*parts) -> str:
@@ -84,7 +84,7 @@ class MainWindow(FluentWindow):
 
         self._pages = [self.homeInterface, self.batchInterface,
                        self.taskInterface, self.settingInterface]
-        self.tabBar = MxuTabBar(
+        self.tabBar = AppTabBar(
             [("home", "视频解析"), ("batch", "批量下载"),
              ("task", "下载任务"), ("setting", "设置")],
             app_name="视频下载器", parent=self)
@@ -146,7 +146,7 @@ class MainWindow(FluentWindow):
         self.setWindowTitle("视频下载器")
         self.setWindowIcon(app_icon())
         # 换掉 qfluentwidgets 自带的 48px 标题栏，改用 32px 的紧凑版本
-        self.setTitleBar(MxuTitleBar(self))
+        self.setTitleBar(AppTitleBar(self))
         # 页面区顶部要让出标题栏高度（FluentWindow 默认按 48 预留，得跟着改）
         self.widgetLayout.setContentsMargins(0, D.TITLEBAR_H, 0, 0)
         # 窗口底色走设计系统的 BG_PRIMARY（浅 #FAFAFA / 深 #09090B）。
