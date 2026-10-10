@@ -38,27 +38,27 @@ CARD_PAD_V = 16
 CARD_GAP = 12          # 卡片内部块与块的间隔
 
 # --------------------------------------------------------------------- 圆角
-# 对齐 MXU 的四档（对应它的 --radius-sm/md/lg/xl）。
+# 四档圆角，尺度对齐 Tailwind 的 rounded-sm/md/lg/xl。
 RADIUS_SM = 6          # 徽章、标签这类小控件
 RADIUS_MD = 8          # 按钮、输入框
 RADIUS_LG = 12         # 卡片、面板
 RADIUS_XL = 16         # 大容器、对话框
 
 # --------------------------------------------------------------------- 标题栏
-# 对齐 MXU（它用的是 h-8 / w-12）：32px 高、右侧三个 48px 宽按钮。
-# 关闭键 hover 用 Tailwind red-500 —— MXU 里就是 `hover:bg-red-500 hover:text-white`。
+# 32px 高（Tailwind h-8）、右侧三个 48px 宽按钮（w-12）。
+# 关闭键 hover 用 Tailwind red-500 满铺 + 白图标，够醒目又不跟语义红撞。
 TITLEBAR_H = 32
 TITLEBAR_BTN_W = 48
 CLOSE_HOVER = "#EF4444"
 
 # --------------------------------------------------------------------- 标签栏
-# 对齐 MXU 的 TabBar（`src/components/TabBar.tsx`）：条高 **40px**（`h-10`）、
+# 条高 **40px**（Tailwind `h-10`）、
 # 底色 bg-secondary + 底部 1px 分隔线；单个标签 `min-w-[120px]`、`text-sm`，
 # 选中 `bg-primary + 强调色文字 + 2px 强调色下边框`，未选中 `bg-tertiary +
 # 次级文字`、hover 变 bg-hover。右侧工具按钮是 `p-2` 的圆角方块（32×32）。
 TABBAR_H = 40
 TABBAR_MIN_W = 120
-TABBAR_TOOL_W = 32      # 右侧工具按钮边长（MXU 是 p-2 + w-4 图标 = 32px）
+TABBAR_TOOL_W = 32      # 右侧工具按钮边长（p-2 内距 + 16px 图标 = 32px）
 TABBAR_ICON = 16        # 工具按钮图标边长
 
 # --------------------------------------------------------------------- 字阶
@@ -80,24 +80,24 @@ def font(size: int = FONT_BODY, weight=W_REGULAR) -> QFont:
 
 
 # --------------------------------------------------------------------- 颜色
-# 中性色阶对齐 MXU（MistEO/MXU，MaaEnd 的 GUI）：实为 Tailwind 的 zinc 灰阶。
+# 中性色阶用 Tailwind 的 zinc 灰阶（现代深色 UI 里最常用的中性色系）。
 # (浅色, 深色) 二元组，顺序与 qfluentwidgets 的 setTextColor(light, dark) 一致。
 #
 # 注意深色底的三个层次和浅色是**反过来**的：深色下 bg-primary 近纯黑、
 # 面板比页面亮；浅色下页面是浅灰、面板纯白。照着抄别自己发挥。
 TEXT_PRIMARY = ("#18181B", "#FAFAFA")      # zinc-900 / zinc-50
 TEXT_SECONDARY = ("#52525B", "#A1A1AA")    # zinc-600 / zinc-400
-TEXT_TERTIARY = ("#71717A", "#71717A")     # zinc-500（两套同值，MXU 就这么写的）
+TEXT_TERTIARY = ("#71717A", "#71717A")     # zinc-500（浅深两套同值）
 TEXT_ACCENT = ("#1A4A8E", "#8AB4FF")       # 强调文字/链接，取自深海蓝
 
-# 语义色**不跟着 MXU 抄**：它的 warning #f59e0b / error #ef4444 是给
+# 语义色**不直接用 Tailwind 调色板原值**：它的 warning #f59e0b / error #ef4444 是给
 # 状态点那种小面积色块用的，当正文色在浅底上只有 2:1 上下，读不清。
 # 这里保留按 WCAG AA 算过的原值。
 SUCCESS = ("#0E7C4A", "#4ADE9B")
 WARNING = ("#B45309", "#F0B03C")
 DANGER = ("#C42B36", "#F2727C")
 
-# 背景三级 + 交互态（对齐 MXU 的 bg.primary/secondary/tertiary/hover/active）。
+# 背景三级 + 交互态（primary=页底 / secondary=面板 / tertiary=内层 / hover·active=交互）。
 # 层次规则：页面底 = primary，卡片/面板/标题栏 = secondary，
 # 再往里一层（输入框、内嵌块）= tertiary。
 BG_PRIMARY = ("#FAFAFA", "#09090B")
@@ -106,7 +106,7 @@ BG_TERTIARY = ("#F4F4F5", "#27272A")
 BG_HOVER = ("#E4E4E7", "#3F3F46")
 BG_ACTIVE = ("#D4D4D8", "#52525B")
 
-# 边框两级（对齐 MXU 的 border.default / border.strong）
+# 边框两级（default=常规描边 / strong=强调描边）
 BORDER = ("#E4E4E7", "#27272A")
 BORDER_STRONG = ("#D4D4D8", "#3F3F46")
 
@@ -121,13 +121,13 @@ FPS_MID = ("rgba(128,128,128,0.18)", "#8A8F98")
 FPS_LOW = ("rgba(217,119,6,0.18)", "#D97706")
 
 # --------------------------------------------------------------------- 强调色
-# 对齐 MXU 的 9 套预设（默认深海蓝），色值直接取自 MXU 仓库的
-# `src/themes/presets/accents/*.json`，不自己发挥。
+# 9 套预设强调色（默认深海蓝），色值取自一套现成的派生色板（每套另带
+# hover / light 衍生值），不自己发挥。
 #
 # 与旧约束的差异（旧值 blue/signal/indigo/magenta/rose 已移除以腾位置）：
 # 旧约束来自 .impeccable.md ——「避开语义色（红/琥珀/绿）、避开被点名的
-# AI 配色（青+深色、紫蓝渐变）、暖玫慎用」。MXU 的色板里有几支确实与
-# 成功/警告同色相（宝石绿、熔岩橙），按 MXU 来就先放下这条：语义状态靠
+# AI 配色（青+深色、紫蓝渐变）、暖玫慎用」。这套色板里有几支确实与
+# 成功/警告同色相（宝石绿、熔岩橙），沿用现成色板就先放下这条：语义状态靠
 # 图标 + 文案区分，不再依赖色相独占。
 #
 # 注意 qfluentwidgets 的 ThemeColor.color() 在深色主题里会把 v 强制拉到 1，
@@ -193,7 +193,7 @@ def _patched_theme_color(self):
 
     base = QColor(qconfig.get(qconfig._cfg.themeColor))
     if self == ThemeColor.PRIMARY:
-        return base                      # MXU：深色下主色就是色板原值
+        return base                      # 深色下主色就用色板原值
 
     h, s, v, _ = base.getHsvF()
     s *= 0.84
@@ -333,7 +333,7 @@ def card(parent, pad_h: int = CARD_PAD_H, pad_v: int = CARD_PAD_V,
 
     统一 padding/gap，免得每个页面各写一套 20,16,20,16。
     圆角显式设成 RADIUS_LG：qfluentwidgets 的 CardWidget 默认只有 5px，
-    太方；MXU 的面板是 `rounded-lg`（12px）。
+    太方；现代桌面风的面板一般是 `rounded-lg`（12px）。
     """
     c = CardWidget(parent)
     c.setBorderRadius(RADIUS_LG)

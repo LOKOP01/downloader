@@ -15,7 +15,7 @@ DEFAULT_CONFIG = {
     "naming_rule": "unique_id",    # unique_id / timestamp / author_title / title / id_title
     "max_concurrent": 3,
     "theme": "dark",                 # dark / light / auto
-    "accent_color": "deepsea",       # 界面强调色，取值见 view/design.ACCENTS（MXU 9 套）
+    "accent_color": "deepsea",       # 界面强调色，取值见 view/design.ACCENTS（9 套预设）
     "create_author_folder": True,
     "download_cover": False,
     "auto_copy_file": True,       # 单个视频下载完成后自动复制文件到剪贴板

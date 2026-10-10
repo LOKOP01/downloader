@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
-"""标题栏：对齐 MaaEnd / MXU 的规格
+"""标题栏：32px 紧凑自绘标题栏
 
-参照 MistEO/MXU（Tauri + React）的自绘标题栏 `src/components/TitleBar.tsx`：
-
-- 高 **32px**（它写的是 `h-8`），底色用 `bg-secondary` + 底部 1px 分隔线
+- 高 **32px**（Tailwind `h-8`），底色用面板级（`BG_SECONDARY`）+ 底部 1px 分隔线
 - 左侧：16px 窗口图标 + 12px 次级色标题，都靠左；图标前留 10px
-- 右侧：三个 **48px 宽**（`w-12`）全高按钮；普通按钮 hover 用 `bg-hover`，
-  **关闭键 hover 变红底白字**（原实现是 `hover:bg-red-500 hover:text-white`）
+- 右侧：三个 **48px 宽**（`w-12`）全高按钮；普通按钮 hover 用 `BG_HOVER`，
+  **关闭键 hover 变红底白字**（Tailwind red-500）
 
 窗口拖动、双击最大化、按钮到窗口操作的连线都由 `TitleBarBase` 提供，
-这里只换成 MXU 的外观。
+这里只换外观。
 """
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon, QPainter
@@ -29,7 +27,7 @@ def _color(token) -> QColor:
 
 
 class MxuTitleBar(TitleBar):
-    """MXU 规格的标题栏"""
+    """32px 紧凑标题栏"""
 
     def __init__(self, parent):
         super().__init__(parent)

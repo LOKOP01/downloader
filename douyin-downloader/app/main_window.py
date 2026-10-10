@@ -77,7 +77,7 @@ class MainWindow(FluentWindow):
 
         self.navigationInterface.setAcrylicEnabled(False)
 
-        # ---------------- 换成 MXU 的两段式壳层：标题栏 → 标签栏 → 内容 ----------------
+        # ---------------- 换成两段式壳层：标题栏 → 标签栏 → 内容 ----------------
         # 左侧导航退场（hide + 移出布局，不销毁）
         self.navigationInterface.hide()
         self.hBoxLayout.removeWidget(self.navigationInterface)
@@ -114,7 +114,7 @@ class MainWindow(FluentWindow):
             self.tabBar.set_current(index)
 
     def _toggle_theme(self):
-        """标签栏右侧的明暗切换（对应 MXU 那个太阳/月亮按钮）"""
+        """标签栏右侧的明暗切换（太阳 / 月亮图标按钮）"""
         cur = self.config.get("theme", "dark")
         self.config.set("theme", "light" if cur != "light" else "dark")
         self._apply_theme()
@@ -145,21 +145,21 @@ class MainWindow(FluentWindow):
         self.resize(1100, 720)
         self.setWindowTitle("视频下载器")
         self.setWindowIcon(app_icon())
-        # 换掉 qfluentwidgets 自带的 48px 标题栏，改用 MXU 规格的 32px 版本
+        # 换掉 qfluentwidgets 自带的 48px 标题栏，改用 32px 的紧凑版本
         self.setTitleBar(MxuTitleBar(self))
         # 页面区顶部要让出标题栏高度（FluentWindow 默认按 48 预留，得跟着改）
         self.widgetLayout.setContentsMargins(0, D.TITLEBAR_H, 0, 0)
-        # 窗口底色走 MXU 的 bg-primary（浅 #FAFAFA / 深 #09090B）。
+        # 窗口底色走设计系统的 BG_PRIMARY（浅 #FAFAFA / 深 #09090B）。
         # 不设的话是 qfluentwidgets 自己的 (#F3F3F3, #202020)，深色下偏灰、
-        # 跟 MXU 那套"近纯黑"的观感差一截。
+        # 跟"近纯黑"的观感差一截。
         try:
             self.setCustomBackgroundColor(*D.BG_PRIMARY)
         except Exception:  # noqa: BLE001 - 旧版 qfluentwidgets 没有这个 API
             pass
-        # 页面底：qfluentwidgets 渲染出来是 #1E1E1E，不是 MXU 的值。
+        # 页面底：qfluentwidgets 渲染出来是 #1E1E1E，不是设计系统的值。
         # 逐页 setStyleSheet（直接设在控件上，优先级高于库的类选择器）——
         # 卡片不用单独改：它是 rgba 白叠加在页面底上的，页面底一对，
-        # 卡片自然落到 MXU 的深度（#09090B 上叠 5% 白 ≈ #151515，接近 #18181B）。
+        # 卡片自然落到目标深度（#09090B 上叠 5% 白 ≈ #151515，接近 #18181B）。
         for itf in (self.homeInterface, self.batchInterface,
                     self.taskInterface, self.settingInterface):
             name = itf.objectName()

@@ -1,18 +1,17 @@
 # -*- coding: utf-8 -*-
-"""顶部标签栏：对齐 MaaEnd / MXU 的规格
+"""顶部标签栏：两段式壳层（标题栏 → 标签栏 → 内容）
 
-MaaEnd 的界面完全来自 MistEO/MXU（Tauri + React），其 `src/components/TabBar.tsx`
-定义了一条 40px 高的顶部标签条，取代了传统侧边导航：
+取代传统的左侧边栏导航：一条 40px 高的标签条横在标题栏下方，
+标签之间用 1px 分隔线切开，选中项与下方页面同色、视觉上"连成一片"。
 
-- 条高 **40px**（`h-10`），底色 `bg-secondary`，底部 1px 分隔线
-- 标签 `min-w-[120px]`、文字 `text-sm`，标签之间 1px 右分隔线
-- 选中：`bg-primary`（与下方页面同色，视觉上"连成一片"）+ 强调色文字 + **2px 强调色下边框**
-- 未选中：`bg-tertiary` + 次级文字，hover 变 `bg-hover`
-- 右侧：应用名 + 工具按钮（`p-2` 圆角方块 = 32×32，hover 变 `bg-hover`）
+- 条高 **40px**（Tailwind `h-10`），底色 = 面板级（`BG_SECONDARY`）+ 底部 1px 分隔线
+- 标签最小宽 120px、字号跟正文一致（14），标签之间 1px 右分隔线
+- 选中：页底色（与下方内容同色）+ 强调色文字 + **2px 强调色下边框**
+- 未选中：内层底色（`BG_TERTIARY`）+ 次级文字，hover 变 `BG_HOVER`
+- 右侧：应用名 + 工具按钮（32×32 圆角方块，hover 变 `BG_HOVER`）
 
-与 MXU 的差异：它的一条标签 = 一个运行实例（可新建/拖动/关闭），本项目的
-4 条标签 = 4 个固定功能页，所以标签区不带新建 `+` 与关闭 `×`，右侧工具区
-只保留"主题切换"（MXU 同款：一个太阳/月亮图标按钮）。
+本项目是 4 个固定功能页、不是可增删的多文档标签，所以标签区不带
+新建 `+` 与关闭 `×`，右侧工具区只保留"主题切换"（一个太阳/月亮图标按钮）。
 
 全部用 `paintEvent` 自绘：省掉 `WA_StyledBackground` 那套开关，主题切换后
 `qconfig.themeChangedFinished → update()` 立即生效，也绕开了裸 QWidget 上
@@ -49,7 +48,7 @@ class _Tab(QWidget):
         self.setFixedHeight(D.TABBAR_H)
         self.setMinimumWidth(D.TABBAR_MIN_W)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        # 字号跟正文一致（MXU 是 text-sm），比正文再重一档以便在灰底上站得住
+        # 字号跟正文一致（14），字重比正文再重一档，以便在灰底上站得住
         self.setFont(D.font(D.FONT_BODY, D.W_MEDIUM))
         qconfig.themeChangedFinished.connect(self.update)
 
@@ -105,7 +104,7 @@ class _Tab(QWidget):
 
 
 class _ToolButton(QWidget):
-    """右侧工具按钮：32×32 圆角方块，hover 变 bg-hover（MXU 的 `p-2 rounded-md`）"""
+    """右侧工具按钮：32×32 圆角方块，hover 变 BG_HOVER"""
 
     clicked = Signal()
 
@@ -148,7 +147,7 @@ class _ToolButton(QWidget):
 
 
 class MxuTabBar(QWidget):
-    """MXU 规格的顶部标签栏。
+    """顶部标签栏。
 
     tabChanged(int) 在用户点击标签时发出，由主窗口负责真正的页面切换。
     """
