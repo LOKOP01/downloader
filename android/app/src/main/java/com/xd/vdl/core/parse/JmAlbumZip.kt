@@ -17,6 +17,8 @@ internal data class JmAlbumZip(
     val fileSize: String,
     val imageUrl: String,
     val downloadUrl: String,
+    /** 服务端给的说明，未登录时就是「請先登入」——直接回显给用户，比自己猜强 */
+    val msg: String,
 ) {
     /** 有登录态且有直链，才值得走官方打包 */
     val usable: Boolean get() = loggedIn && downloadUrl.isNotEmpty()
@@ -31,6 +33,7 @@ internal data class JmAlbumZip(
                 fileSize = json.optString("fileSize"),
                 imageUrl = json.optString("img_url"),
                 downloadUrl = json.optString("download_url"),
+                msg = json.optString("msg"),
             )
         }
     }

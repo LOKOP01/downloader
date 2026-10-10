@@ -156,7 +156,7 @@ object JmClient {
             try {
                 val b = Request.Builder().url(url)
                 headers.forEach { (k, v) -> b.header(k, v) }
-                applyCookie(b)
+                applyAuth(b)
                 val r = client.newCall(b.build()).execute()
                 val body = r.use { it.body?.string().orEmpty() }
                 if (!r.isSuccessful) {
@@ -215,23 +215,111 @@ object JmClient {
         java.net.URLEncoder.encode(s, "UTF-8")
 
     // ------------------------------------------------------------------ //
-    // Cookie（官方打包直链必须登录）
+    // Cookie / 登录态
     // ------------------------------------------------------------------ //
 
     /**
-     * 用户在设置页填的禁漫 Cookie（`AVS` 等）。
+     * 请求要带的 Cookie。
      *
-     * 以前这里一律不带 Cookie —— 普通翻页/看本子确实不需要；但官方的
-     * `/album_download_2` 必须登录，所以现在统一带上。头部值只能是可见 ASCII，
-     * 混进非 ASCII（从浏览器粘过来常有）会被 OkHttp 直接拒掉，所以先过滤。
+     * 优先用**接口域登录**拿到的 AVS（那才是 `/album_download_2` 这类接口认的），
+     * 没有才退回设置页里手填的那份 —— 手填的多半来自 `18comic.vip`，
+     * 官方文档明确说过跨域名的 AVS 会「配了也没效果」（issue #104）。
      */
-    private fun cookieHeader(): String =
-        runCatching { Http.cookieFor(Platform.JMCOMIC) }.getOrNull().orEmpty()
-            .filter { it.code in 0x20..0x7E }
+    private fun cookieHeader(): String {
+        val fromLogin = JmSession.avs
+        if (fromLogin.isNotEmpty()) return "AVS=$fromLogin"
+        return runCatching { Http.cookieFor(Platform.JMCOMIC) }.getOrNull().orEmpty()
+    }
 
-    private fun applyCookie(b: Request.Builder) {
-        val ck = cookieHeader()
+    /** 头部值只能是可见 ASCII，从浏览器粘过来的常常混进别的字符 */
+    private fun sanitize(v: String): String = v.filter { it.code in 0x20..0x7E }
+
+    /**
+     * 官方 App 就是这么发的：`Token` / `Tokenparam` 之外，再带
+     * `Authorization: Bearer <jwttoken>` 与 `Cookie: AVS=<s>`，两个都来自 `/login`。
+     */
+    private fun applyAuth(b: Request.Builder) {
+        val ck = sanitize(cookieHeader())
         if (ck.isNotEmpty()) b.header("Cookie", ck)
+        val jwt = sanitize(JmSession.jwt)
+        if (jwt.isNotEmpty()) b.header("Authorization", "Bearer $jwt")
+    }
+
+    // ------------------------------------------------------------------ //
+    // 登录
+    // ------------------------------------------------------------------ //
+
+    /** `/login` 的返回：`s` 就是接口域的 AVS，`jwttoken` 是会员接口用的 JWT */
+    internal data class LoginResult(
+        val ok: Boolean,
+        val jwt: String,
+        val avs: String,
+        val message: String,
+    ) {
+        companion object {
+            /**
+             * 解析 `/login` 的返回体。成功码不是 200，失败时说明在 `errorMsg`
+             * （实测：「無效的用戶名和/或密碼！」「用戶名和密碼字段不能留空！」）。
+             */
+            fun parse(code: Int, body: String): LoginResult {
+                val json = runCatching { JSONObject(body) }.getOrNull()
+                    ?: return LoginResult(false, "", "", "返回的不是 JSON：${body.take(80)}")
+                if (code != 200) {
+                    val msg = json.optString("errorMsg").ifEmpty { "登录失败（HTTP $code）" }
+                    return LoginResult(false, "", "", msg)
+                }
+                val data = json.optJSONObject("data")
+                    ?: return LoginResult(false, "", "", "登录返回里没有 data")
+                val jwt = data.optString("jwttoken")
+                // AVS 在 data.s；有的版本放在 username/uid 之外，缺了就还是失败
+                val avs = data.optString("s")
+                return if (jwt.isEmpty() && avs.isEmpty()) {
+                    LoginResult(false, "", "", "登录返回里没有凭据（jwttoken/s 都为空）")
+                } else {
+                    LoginResult(true, jwt, avs, "")
+                }
+            }
+        }
+    }
+
+    /**
+     * 用禁漫账号登录接口域，拿到 `/album_download_2` 认的那套凭据。
+     *
+     * 字段名实测确认：`username` + `password`（用 `email` 会被回
+     * 「用戶名和密碼字段不能留空！」）。只用账号密码，不碰 Cookie。
+     */
+    internal fun login(username: String, password: String): LoginResult {
+        val ts = System.currentTimeMillis() / 1000
+        val (headers, _) = signHeaders()
+        var last = "无可用域名"
+        for (dom in DOMAINS) {
+            try {
+                val form = okhttp3.FormBody.Builder()
+                    .add("username", username)
+                    .add("password", password)
+                    .build()
+                val b = Request.Builder()
+                    .url("https://$dom/login")
+                    .post(form)
+                headers.forEach { (k, v) -> b.header(k, v) }
+                val r = client.newCall(b.build()).execute()
+                val body = r.use { it.body?.string().orEmpty() }
+                val res = LoginResult.parse(r.code, body)
+                if (res.ok) {
+                    liveDomain = dom
+                    return res
+                }
+                // 凭据错了就没必要换域名再试；只有连不上的错误才继续
+                if (r.code != 401) {
+                    last = res.message
+                    continue
+                }
+                return res
+            } catch (e: Exception) {  // noqa: BLE001
+                last = "${e.javaClass.simpleName}: ${e.message}"
+            }
+        }
+        return LoginResult(false, "", "", "登录请求失败：$last")
     }
 
     // ------------------------------------------------------------------ //
@@ -323,7 +411,7 @@ object JmClient {
         b.header("Accept", "*/*")
         b.header("X-Requested-With", "com.JMComic3.app")
         b.header("Referer", "https://${DOMAINS.first()}/")
-        applyCookie(b)
+        applyAuth(b)
         client.newCall(b.build()).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
             val body = resp.body ?: throw IOException("响应为空")
@@ -345,6 +433,30 @@ object JmClient {
         }
     }
 
+    /**
+     * 诊断用：**原样**打一次 `/album_download_2/<id>`，把服务端回复的原文交出来。
+     * 设置页的「测试打包直链」用它 —— 解析成功与否都无所谓，要看的是服务端原话。
+     */
+    internal fun albumDownloadRaw(albumId: String): String = runCatching {
+        apiGet("/album_download_2/$albumId").first
+    }.getOrElse { "请求失败：${it.javaClass.simpleName}: ${it.message}" }
+
+    /**
+     * 诊断用：当前请求会带上什么 Cookie（只回键名与长度，不回显值）。
+     *
+     * 「填了 AVS 还是说未登录」这类问题，第一步就得确认 Cookie 到底有没有带上、
+     * 键名对不对 —— 光看界面上的「已登录」标记是看不出来的。
+     */
+    internal fun cookieDebug(): String {
+        val ck = cookieHeader()
+        if (ck.isEmpty()) return "本次请求没带 Cookie"
+        val names = ck.split(';').mapNotNull { seg ->
+            val i = seg.indexOf('=')
+            if (i > 0) seg.substring(0, i).trim().takeIf { it.isNotEmpty() } else null
+        }
+        return "本次请求带了 Cookie：${names.joinToString("/")}（共 ${ck.length} 字符）"
+    }
+
     /** 当前生效的接口域名，用于补全可能是相对路径的 `download_url` */
     internal fun apiBase(): String = "https://" + liveDomain.ifEmpty { DOMAINS.first() }
 
@@ -359,7 +471,7 @@ object JmClient {
      */
     internal fun fetchImage(url: String): ByteArray {
         val b = Request.Builder().url(url).header("User-Agent", UA_APP)
-        applyCookie(b)
+        applyAuth(b)
         b.header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
         b.header("X-Requested-With", "com.JMComic3.app")
         b.header("Referer", "https://${DOMAINS.first()}/")

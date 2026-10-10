@@ -198,13 +198,16 @@ object JmDownloader {
         onChapter("正在申请官方打包…")
         val meta = JmClient.albumDownload(info.jmId)
         if (meta == null) {
-            AppLog.i("禁漫打包接口不可用，改为逐张下载")
+            AppLog.w("禁漫打包接口不可用，改为逐张下载 | ${JmClient.cookieDebug()}")
+            onChapter("官方打包接口没通，改为逐张下载…")
             return false
         }
         if (!meta.usable) {
-            // status == "0" 就是服务端说的「請先登入」
-            AppLog.i("禁漫官方打包需登录（loggedIn=${meta.loggedIn}），改为逐张下载")
-            onChapter("未登录禁漫，改为逐张下载…")
+            // status == "0" 就是服务端说的「請先登入」。把原文回显出来，
+            // 免得用户看到一句笼统的「未登录」不知道到底是没填 Cookie 还是 Cookie 失效。
+            val why = meta.msg.ifEmpty { if (meta.loggedIn) "没拿到直链" else "未登录" }
+            AppLog.w("禁漫官方打包不可用：$why | ${JmClient.cookieDebug()}")
+            onChapter("官方打包不可用（$why），改为逐张下载…")
             return false
         }
 

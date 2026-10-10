@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -45,6 +46,8 @@ import com.xd.vdl.BuildConfig
 import com.xd.vdl.core.Platform
 import com.xd.vdl.core.SaveSettings
 import com.xd.vdl.core.download.JmDownloadMode
+import com.xd.vdl.core.parse.JmClient
+import com.xd.vdl.core.parse.JmSession
 import com.xd.vdl.core.net.CookieStore
 import com.xd.vdl.core.net.Http
 import com.xd.vdl.ui.component.GkCard
@@ -52,6 +55,9 @@ import com.xd.vdl.ui.component.GkDimens
 import com.xd.vdl.ui.component.GkPageTitle
 import com.xd.vdl.ui.component.GkSectionLabel
 import com.xd.vdl.ui.component.GkTextBadge
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
@@ -149,16 +155,23 @@ fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
 }
 
 /**
- * 禁漫下载方式。
+ * 禁漫下载方式 + 账号登录。
  *
- * 官方有个「整本打包」接口（`/album_download_2/<本子id>`），一次请求就能把整本拿回来，
- * 比逐张下载快一个数量级 —— 但**必须登录**（未登录返回 `請先登入`），而且进度只能按
- * 字节走。关掉它就始终逐张下载：进度按张数增长，未登录也能用。
+ * 「官方打包直链」(`/album_download_2`) 认的是**接口域自己签发的会话**，
+ * 从 18comic.vip 抄来的 AVS 基本不管用（jmcomic 官方文档 issue #104 专门写过这个坑），
+ * 所以这里直接做**账号登录** —— 和官方 App 同一个接口（`POST /login`），
+ * 拿回 `jwttoken` 与 `s`（AVS），两个头一起带。登录后直链才会返回 `download_url`。
  */
 @Composable
 private fun JmModeCard(vm: AppViewModel) {
     val ctx = LocalContext.current
     var on by remember { mutableStateOf(JmDownloadMode.officialZipFirst(ctx)) }
+    // 登录态刷新用
+    var epoch by remember { mutableStateOf(0) }
+    var showLogin by remember { mutableStateOf(false) }
+    var showTest by remember { mutableStateOf(false) }
+    val loggedIn = remember(epoch) { JmSession.loggedIn }
+    val account = remember(epoch) { JmSession.account }
 
     GkCard {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -166,7 +179,7 @@ private fun JmModeCard(vm: AppViewModel) {
                 Text("优先用官方打包直链", style = MaterialTheme.typography.bodyLarge)
                 Text(
                     if (on) {
-                        "已登录禁漫时一次请求下完，最快；未登录会自动退回逐张下载"
+                        "登录后一次请求下完，最快；不可用会自动退回逐张下载"
                     } else {
                         "始终逐张下载并打包（进度按张数，未登录也能用）"
                     },
@@ -183,6 +196,204 @@ private fun JmModeCard(vm: AppViewModel) {
                     vm.notify(if (it) "禁漫：优先官方打包直链" else "禁漫：始终逐张下载")
                 },
             )
+        }
+
+        HorizontalDivider(Modifier.padding(vertical = 12.dp))
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    if (loggedIn) "已登录：$account" else "未登录禁漫账号",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Text(
+                    if (loggedIn) {
+                        "直链下载要用这个登录态；它和设置里手填的 Cookie 不是一回事"
+                    } else {
+                        "官方打包直链必须用它自己的登录态；手填的网页 Cookie 多半不认"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (loggedIn) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            TextButton(onClick = { showLogin = true }) {
+                Text(if (loggedIn) "重新登录" else "账号登录")
+            }
+            if (loggedIn) {
+                TextButton(onClick = {
+                    JmSession.clear(ctx)
+                    epoch++
+                    vm.notify("已退出禁漫账号")
+                }) { Text("退出") }
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            TextButton(onClick = { showTest = true }) { Text("测试打包直链") }
+        }
+    }
+
+    if (showLogin) {
+        JmLoginDialog(
+            onDone = { epoch++; showLogin = false },
+            onClose = { showLogin = false },
+        )
+    }
+    if (showTest) {
+        JmZipTestDialog(onClose = { showTest = false })
+    }
+}
+
+/** 账号登录：只用账号密码，不碰 Cookie（和官方 App 同一个 /login 接口） */
+@Composable
+private fun JmLoginDialog(onDone: () -> Unit, onClose: () -> Unit) {
+    val ctx = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var user by remember { mutableStateOf("") }
+    var pass by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf("") }
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Card(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().padding(20.dp)) {
+                Text("登录禁漫", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "用禁漫账号密码走官方 App 的登录接口，只把服务端返回的登录凭据" +
+                        "（jwt / AVS）存在本机，**不会保存密码**。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(14.dp))
+
+                OutlinedTextField(
+                    value = user,
+                    onValueChange = { user = it; msg = "" },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("账号") },
+                    singleLine = true,
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = pass,
+                    onValueChange = { pass = it; msg = "" },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("密码") },
+                    singleLine = true,
+                )
+                if (msg.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(msg, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error)
+                }
+
+                Spacer(Modifier.weight(1f))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onClose, enabled = !busy) { Text("取消") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            if (user.isBlank() || pass.isEmpty()) {
+                                msg = "账号和密码都要填"
+                                return@Button
+                            }
+                            busy = true
+                            msg = ""
+                            scope.launch {
+                                val r = withContext(Dispatchers.IO) {
+                                    JmClient.login(user.trim(), pass)
+                                }
+                                busy = false
+                                if (r.ok) {
+                                    JmSession.save(ctx, r.jwt, r.avs, user.trim())
+                                    onDone()
+                                } else {
+                                    msg = r.message
+                                }
+                            }
+                        },
+                        enabled = !busy,
+                    ) { Text(if (busy) "登录中…" else "登录") }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * 诊断：原样打一次官方打包接口，把服务端回复摆出来。
+ *
+ * 「登录了还是说未登录」这类问题，光看界面提示没法定位 —— 得看服务端原话
+ * （`status` / `msg`）以及这次请求到底带了什么头。
+ */
+@Composable
+private fun JmZipTestDialog(onClose: () -> Unit) {
+    val scope = rememberCoroutineScope()
+    var id by remember { mutableStateOf("422866") }
+    var busy by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf("") }
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Card(Modifier.fillMaxSize()) {
+            Column(Modifier.fillMaxSize().padding(20.dp)) {
+                Text("测试打包直链", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "填一个本子号，看服务端原样返回什么。" +
+                        "`status:0` = 未登录；有 download_url 就说明能用。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(12.dp))
+                OutlinedTextField(
+                    value = id,
+                    onValueChange = { id = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("本子号") },
+                    singleLine = true,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    JmClient.cookieDebug(),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                if (result.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(result, style = MaterialTheme.typography.bodySmall)
+                }
+                Spacer(Modifier.weight(1f))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onClose, enabled = !busy) { Text("关闭") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            busy = true
+                            result = ""
+                            scope.launch {
+                                result = withContext(Dispatchers.IO) {
+                                    JmClient.albumDownloadRaw(id.trim())
+                                }
+                                busy = false
+                            }
+                        },
+                        enabled = !busy && id.isNotBlank(),
+                    ) { Text(if (busy) "请求中…" else "测试") }
+                }
+            }
         }
     }
 }
