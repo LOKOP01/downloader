@@ -39,6 +39,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
@@ -283,12 +285,21 @@ private fun JmLoginDialog(onDone: () -> Unit, onClose: () -> Unit) {
                     singleLine = true,
                 )
                 Spacer(Modifier.height(8.dp))
+                var showPass by remember { mutableStateOf(false) }
                 OutlinedTextField(
                     value = pass,
                     onValueChange = { pass = it; msg = "" },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("密码") },
                     singleLine = true,
+                    // 密码默认不显示明文；要看一眼时点右上角的「显示」
+                    visualTransformation = if (showPass) VisualTransformation.None
+                    else PasswordVisualTransformation(),
+                    trailingIcon = {
+                        TextButton(onClick = { showPass = !showPass }) {
+                            Text(if (showPass) "隐藏" else "显示", style = MaterialTheme.typography.labelSmall)
+                        }
+                    },
                 )
                 if (msg.isNotEmpty()) {
                     Spacer(Modifier.height(10.dp))

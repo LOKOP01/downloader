@@ -257,29 +257,73 @@ object JmClient {
         val message: String,
     ) {
         companion object {
-            /**
-             * 解析 `/login` 的返回体。成功码不是 200，失败时说明在 `errorMsg`
-             * （实测：「無效的用戶名和/或密碼！」「用戶名和密碼字段不能留空！」）。
-             */
-            fun parse(code: Int, body: String): LoginResult {
-                val json = runCatching { JSONObject(body) }.getOrNull()
-                    ?: return LoginResult(false, "", "", "返回的不是 JSON：${body.take(80)}")
-                if (code != 200) {
-                    val msg = json.optString("errorMsg").ifEmpty { "登录失败（HTTP $code）" }
-                    return LoginResult(false, "", "", msg)
-                }
-                val data = json.optJSONObject("data")
-                    ?: return LoginResult(false, "", "", "登录返回里没有 data")
+            /** 内层 JSON（已解密）→ LoginResult */
+            fun fromData(innerJson: String): LoginResult {
+                val data = runCatching { JSONObject(innerJson) }.getOrNull()
+                    ?: return LoginResult(false, "", "", "登录返回的 data 不是 JSON：${innerJson.take(120)}")
                 val jwt = data.optString("jwttoken")
-                // AVS 在 data.s；有的版本放在 username/uid 之外，缺了就还是失败
+                // AVS 就是 data.s
                 val avs = data.optString("s")
                 return if (jwt.isEmpty() && avs.isEmpty()) {
-                    LoginResult(false, "", "", "登录返回里没有凭据（jwttoken/s 都为空）")
+                    LoginResult(false, "", "", "登录返回里没有凭据（jwttoken/s 都为空）：${innerJson.take(120)}")
                 } else {
                     LoginResult(true, jwt, avs, "")
                 }
             }
         }
+    }
+
+    /**
+     * 依次试两把密钥解密（与官方 App 的响应处理一模一样：它也是把两把密钥轮着试一遍，
+     * 谁能解出合法 JSON 就用谁）。主密钥之外还有一把 `/chapter_view_template` 专用的。
+     *
+     * 解不出来返回空串。
+     */
+    internal fun decryptAny(b64: String, ts: Long): String {
+        for (secret in listOf(SECRET, SECRET_SCRAMBLE)) {
+            val text = runCatching { decrypt(b64, ts, secret) }.getOrNull() ?: continue
+            if (runCatching { JSONObject(text) }.isSuccess) return text
+        }
+        return ""
+    }
+
+    /**
+     * 拆 `/login` 的响应体。
+     *
+     * ⚠️ 这里踩过一次：**成功时 `data` 是加密过的内层 JSON 字符串**，不是对象 ——
+     * 和其它接口同一套约定（AES-ECB，key = md5(时间戳 + 密钥)）。失败的响应才是
+     * 明文（`code != 200`、`data` 是空数组、说明在 `errorMsg` 里）。
+     * 第一版直接 `optJSONObject("data")`，拿到 null 就报「登录返回里没有 data」，
+     * 把「要解密」误判成了「服务端没给数据」。
+     *
+     * 同时也兼容服务端万一直接给对象 / 给明文 JSON 的情况。
+     *
+     * [decryptor] 只为单测能注入 —— `android.util.Base64` 在 JVM 单测里是桩。
+     */
+    internal fun unwrapLoginBody(
+        code: Int,
+        body: String,
+        ts: Long,
+        decryptor: ((String, Long) -> String)? = null,
+    ): LoginResult {
+        val json = runCatching { JSONObject(body) }.getOrNull()
+            ?: return LoginResult(false, "", "", "登录返回的不是 JSON：${body.take(120)}")
+        if (code != 200) {
+            val msg = json.optString("errorMsg").ifEmpty { "登录失败（HTTP $code）" }
+            return LoginResult(false, "", "", msg)
+        }
+        val dec = decryptor ?: { b: String, t: Long -> decryptAny(b, t) }
+        val raw = json.opt("data")
+        val inner = when (raw) {
+            is JSONObject -> raw.toString()
+            is String -> if (raw.trimStart().startsWith("{")) raw else dec(raw, ts)
+            else -> ""
+        }
+        if (inner.isEmpty()) {
+            val shape = raw?.javaClass?.simpleName ?: "null"
+            return LoginResult(false, "", "", "登录返回的 data 形态不认识（$shape）：${body.take(120)}")
+        }
+        return LoginResult.fromData(inner)
     }
 
     /**
@@ -289,8 +333,7 @@ object JmClient {
      * 「用戶名和密碼字段不能留空！」）。只用账号密码，不碰 Cookie。
      */
     internal fun login(username: String, password: String): LoginResult {
-        val ts = System.currentTimeMillis() / 1000
-        val (headers, _) = signHeaders()
+        val (headers, ts) = signHeaders()
         var last = "无可用域名"
         for (dom in DOMAINS) {
             try {
@@ -304,17 +347,14 @@ object JmClient {
                 headers.forEach { (k, v) -> b.header(k, v) }
                 val r = client.newCall(b.build()).execute()
                 val body = r.use { it.body?.string().orEmpty() }
-                val res = LoginResult.parse(r.code, body)
+                val res = unwrapLoginBody(r.code, body, ts)
                 if (res.ok) {
                     liveDomain = dom
                     return res
                 }
-                // 凭据错了就没必要换域名再试；只有连不上的错误才继续
-                if (r.code != 401) {
-                    last = res.message
-                    continue
-                }
-                return res
+                // 401 = 账号密码不对，换域名也没意义，直接把服务端的话带回去
+                if (r.code == 401) return res
+                last = res.message
             } catch (e: Exception) {  // noqa: BLE001
                 last = "${e.javaClass.simpleName}: ${e.message}"
             }
