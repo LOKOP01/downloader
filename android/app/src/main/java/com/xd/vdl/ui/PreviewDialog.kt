@@ -9,7 +9,10 @@ import android.widget.VideoView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +52,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -226,13 +231,113 @@ private fun VideoPreview(uri: String) {
 // 图片（图集散图 + zip 内页共用）
 // ---------------------------------------------------------------------- //
 
+/** 缩放上下限；双击落在 [DOUBLE_TAP_SCALE] 上，再双击回 1 倍。
+ *  这几个值与本文件里的 [ZoomState] 用 internal 暴露，只为单测能直接覆盖钳制逻辑。*/
+internal const val MIN_SCALE = 1f
+internal const val MAX_SCALE = 6f
+internal const val DOUBLE_TAP_SCALE = 2.5f
+
+/**
+ * 缩放 / 平移状态。
+ *
+ * 必须用可变状态而不是普通局部变量：指针回调是在 `pointerInput` 的 lambda 里跑的，
+ * 普通变量会被闭包冻结在创建那一刻，捏合时改的一直是最初那个 1f。
+ */
+internal class ZoomState {
+    var scale by mutableFloatStateOf(1f)
+    var offset by mutableStateOf(Offset.Zero)
+
+    val zoomed: Boolean get() = scale > 1.01f
+
+    fun reset() {
+        scale = 1f
+        offset = Offset.Zero
+    }
+
+    fun applyZoom(factor: Float, viewW: Float, viewH: Float) {
+        scale = (scale * factor).coerceIn(MIN_SCALE, MAX_SCALE)
+        clamp(viewW, viewH)
+    }
+
+    fun toggleDoubleTap() {
+        if (zoomed) reset() else scale = DOUBLE_TAP_SCALE
+    }
+
+    fun panBy(dx: Float, dy: Float, viewW: Float, viewH: Float) {
+        offset += Offset(dx, dy)
+        clamp(viewW, viewH)
+    }
+
+    /** 放大后不许把图拖出可视区：平移量最多到「多出来那部分」的一半 */
+    private fun clamp(viewW: Float, viewH: Float) {
+        if (!zoomed) {
+            offset = Offset.Zero
+            return
+        }
+        val maxX = viewW * (scale - 1f) / 2f
+        val maxY = viewH * (scale - 1f) / 2f
+        offset = Offset(offset.x.coerceIn(-maxX, maxX), offset.y.coerceIn(-maxY, maxY))
+    }
+}
+
+/**
+ * 缩放 + 平移手势，**按需消费**指针事件。
+ *
+ * ⚠️ 这里不能用 `detectTransformGestures`：它不管当前缩放比是多少都会把单指拖动
+ * 消费掉，套在 HorizontalPager 的页面上就等于把翻页手势整个封死 —— 表现出来就是
+ * 「只能点按钮翻页、横滑没反应」。所以自己判条件：
+ *
+ *  · 单指 + 未放大 → **不消费**，事件继续传给父级 pager，横滑翻页照常
+ *  · 双指（捏合）或已经放大 → 消费，做缩放 / 平移
+ */
+private fun Modifier.zoomAndPan(state: ZoomState): Modifier = this
+    .pointerInput(Unit) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false)
+            while (true) {
+                val event = awaitPointerEvent()
+                val pressed = event.changes.count { it.pressed }
+                if (pressed == 0) break
+                if (pressed < 2 && !state.zoomed) continue   // 交给 pager 翻页
+                val w = size.width.toFloat()
+                val h = size.height.toFloat()
+                val zoomChange = event.calculateZoom()
+                val panChange = event.calculatePan()
+                if (zoomChange != 1f) state.applyZoom(zoomChange, w, h)
+                if (panChange != Offset.Zero) state.panBy(panChange.x, panChange.y, w, h)
+                event.changes.forEach { if (it.positionChanged()) it.consume() }
+            }
+        }
+    }
+    .pointerInput(Unit) {
+        detectTapGestures(onDoubleTap = { state.toggleDoubleTap() })
+    }
+
+/**
+ * 可横滑翻页 + 双指缩放 + 双击缩放的图片浏览器（图集散图与压缩包内页共用）。
+ *
+ * 未放大时单指横滑交给 [HorizontalPager] 翻页；放大后手势由 [zoomAndPan] 接管，
+ * 翻页改用底部按钮（这也是各类漫画阅读器的通行做法，免得放大后误翻页）。
+ */
 @Composable
-private fun ImagePager(uris: List<String>, startIndex: Int) {
-    val pager = rememberPagerState(initialPage = startIndex) { uris.size }
+private fun ZoomPager(
+    pageCount: Int,
+    startIndex: Int,
+    prevLabel: String,
+    nextLabel: String,
+    uriAt: (Int) -> String,
+) {
+    if (pageCount <= 0) {
+        Hint("没有可翻看的页")
+        return
+    }
+    val pager = rememberPagerState(
+        initialPage = startIndex.coerceIn(0, pageCount - 1),
+    ) { pageCount }
     val scope = rememberCoroutineScope()
-    var scale by remember(pager.currentPage) { mutableFloatStateOf(1f) }
-    var offsetX by remember(pager.currentPage) { mutableFloatStateOf(0f) }
-    var offsetY by remember(pager.currentPage) { mutableFloatStateOf(0f) }
+    val zoom = remember { ZoomState() }
+    // 换页就复位：否则翻回来会停在一个「滑不动」的放大页上
+    LaunchedEffect(pager.currentPage) { zoom.reset() }
 
     Column(Modifier.fillMaxSize()) {
         Box(
@@ -242,69 +347,69 @@ private fun ImagePager(uris: List<String>, startIndex: Int) {
             contentAlignment = Alignment.Center,
         ) {
             HorizontalPager(state = pager) { page ->
+                val current = page == pager.currentPage
                 PagedImage(
-                    uri = uris[page],
+                    uri = uriAt(page),
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = if (page == pager.currentPage) scale else 1f,
-                            scaleY = if (page == pager.currentPage) scale else 1f,
-                            translationX = if (page == pager.currentPage) offsetX else 0f,
-                            translationY = if (page == pager.currentPage) offsetY else 0f,
-                        )
-                        .pointerInput(page) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                scale = (scale * zoom).coerceIn(1f, 6f)
-                                if (scale <= 1.02f) {
-                                    offsetX = 0f; offsetY = 0f
-                                } else {
-                                    offsetX += pan.x; offsetY += pan.y
-                                }
-                            }
-                        },
+                        .graphicsLayer {
+                            scaleX = if (current) zoom.scale else 1f
+                            scaleY = if (current) zoom.scale else 1f
+                            translationX = if (current) zoom.offset.x else 0f
+                            translationY = if (current) zoom.offset.y else 0f
+                        }
+                        .then(if (current) Modifier.zoomAndPan(zoom) else Modifier),
                 )
             }
         }
-        if (uris.size > 1) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            pager.animateScrollToPage((pager.currentPage - 1).coerceAtLeast(0))
-                        }
-                    },
-                    enabled = pager.currentPage > 0,
-                ) { Icon(Icons.Filled.ChevronLeft, "上一张", tint = Color.White) }
-                Text(
-                    "${pager.currentPage + 1} / ${uris.size}",
-                    color = Color.White,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(horizontal = 12.dp),
-                )
-                IconButton(
-                    onClick = {
-                        scope.launch {
-                            pager.animateScrollToPage(
-                                (pager.currentPage + 1).coerceAtMost(uris.size - 1),
-                            )
-                        }
-                    },
-                    enabled = pager.currentPage < uris.size - 1,
-                ) { Icon(Icons.Filled.ChevronRight, "下一张", tint = Color.White) }
-                Spacer(Modifier.width(8.dp))
-                OutlinedButton(onClick = { scale = 1f; offsetX = 0f; offsetY = 0f }) {
-                    Text("复位", fontSize = 12.sp)
-                }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        pager.animateScrollToPage((pager.currentPage - 1).coerceAtLeast(0))
+                    }
+                },
+                enabled = pager.currentPage > 0,
+            ) { Icon(Icons.Filled.ChevronLeft, prevLabel, tint = Color.White) }
+            Text(
+                "${pager.currentPage + 1} / $pageCount",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                modifier = Modifier.padding(horizontal = 12.dp),
+            )
+            IconButton(
+                onClick = {
+                    scope.launch {
+                        pager.animateScrollToPage(
+                            (pager.currentPage + 1).coerceAtMost(pageCount - 1),
+                        )
+                    }
+                },
+                enabled = pager.currentPage < pageCount - 1,
+            ) { Icon(Icons.Filled.ChevronRight, nextLabel, tint = Color.White) }
+            Spacer(Modifier.width(8.dp))
+            OutlinedButton(onClick = { zoom.reset() }) {
+                Text("复位", fontSize = 12.sp)
             }
         }
     }
+}
+@Composable
+private fun ImagePager(uris: List<String>, startIndex: Int) {
+    ZoomPager(
+        pageCount = uris.size,
+        startIndex = startIndex,
+        prevLabel = "上一张",
+        nextLabel = "下一张",
+        uriAt = { uris[it] },
+    )
 }
 
 /** 本地图片和解出的漫画页统一按 URI 加载 */
@@ -403,81 +508,13 @@ private fun ZipPreview(uri: String) {
 
 @Composable
 private fun ZipPager(imgs: List<File>) {
-    val pager = rememberPagerState(initialPage = 0) { imgs.size }
-    val scope = rememberCoroutineScope()
-    var scale by remember(pager.currentPage) { mutableFloatStateOf(1f) }
-    var offsetX by remember(pager.currentPage) { mutableFloatStateOf(0f) }
-    var offsetY by remember(pager.currentPage) { mutableFloatStateOf(0f) }
-
-    Column(Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            contentAlignment = Alignment.Center,
-        ) {
-            HorizontalPager(state = pager) { page ->
-                PagedImage(
-                    uri = Uri.fromFile(imgs[page]).toString(),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(
-                            scaleX = if (page == pager.currentPage) scale else 1f,
-                            scaleY = if (page == pager.currentPage) scale else 1f,
-                            translationX = if (page == pager.currentPage) offsetX else 0f,
-                            translationY = if (page == pager.currentPage) offsetY else 0f,
-                        )
-                        .pointerInput(page) {
-                            detectTransformGestures { _, pan, zoom, _ ->
-                                scale = (scale * zoom).coerceIn(1f, 6f)
-                                if (scale <= 1.02f) {
-                                    offsetX = 0f; offsetY = 0f
-                                } else {
-                                    offsetX += pan.x; offsetY += pan.y
-                                }
-                            }
-                        },
-                )
-            }
-        }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        pager.animateScrollToPage((pager.currentPage - 1).coerceAtLeast(0))
-                    }
-                },
-                enabled = pager.currentPage > 0,
-            ) { Icon(Icons.Filled.ChevronLeft, "上一页", tint = Color.White) }
-            Text(
-                "${pager.currentPage + 1} / ${imgs.size}",
-                color = Color.White,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 13.sp,
-                modifier = Modifier.padding(horizontal = 12.dp),
-            )
-            IconButton(
-                onClick = {
-                    scope.launch {
-                        pager.animateScrollToPage(
-                            (pager.currentPage + 1).coerceAtMost(imgs.size - 1),
-                        )
-                    }
-                },
-                enabled = pager.currentPage < imgs.size - 1,
-            ) { Icon(Icons.Filled.ChevronRight, "下一页", tint = Color.White) }
-            Spacer(Modifier.width(8.dp))
-            OutlinedButton(onClick = { scale = 1f; offsetX = 0f; offsetY = 0f }) {
-                Text("复位", fontSize = 12.sp)
-            }
-        }
-    }
+    ZoomPager(
+        pageCount = imgs.size,
+        startIndex = 0,
+        prevLabel = "上一页",
+        nextLabel = "下一页",
+        uriAt = { Uri.fromFile(imgs[it]).toString() },
+    )
 }
 
 /**
