@@ -1,5 +1,8 @@
 package com.xd.vdl.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -37,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -92,7 +96,7 @@ fun TasksScreen(vm: AppViewModel) {
         }
 
         Spacer(Modifier.height(12.dp))
-        LogPanel()
+        LogPanel(vm)
     }
 
     preview?.let { t ->
@@ -133,7 +137,8 @@ private fun EmptyTasksCard() {
 }
 
 @Composable
-private fun LogPanel() {
+private fun LogPanel(vm: AppViewModel) {
+    val ctx = LocalContext.current
     val lines by AppLog.lines.collectAsState()
     val listState = rememberLazyListState()
     // 只有原本就贴着底部才继续跟随新日志 —— 下载中日志几秒一条，无条件
@@ -155,6 +160,17 @@ private fun LogPanel() {
                 fontWeight = FontWeight.SemiBold,
             )
             Spacer(Modifier.weight(1f))
+            // 反馈问题时要整段日志，手机上没法长按框选，直接给一键复制
+            TextButton(onClick = {
+                val text = lines.joinToString("\n")
+                if (text.isBlank()) {
+                    vm.notify("日志是空的")
+                } else {
+                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    cm.setPrimaryClip(ClipData.newPlainText("运行日志", text))
+                    vm.notify("已复制 ${lines.size} 行日志")
+                }
+            }) { Text("复制") }
             TextButton(onClick = { AppLog.clear() }) { Text("清空") }
         }
         LazyColumn(

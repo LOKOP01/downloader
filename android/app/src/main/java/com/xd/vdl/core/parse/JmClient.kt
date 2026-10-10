@@ -450,10 +450,27 @@ object JmClient {
      * 阻塞读写里没法直接查协程状态，由调用方在回调里 `ensureActive()`。
      */
     internal fun downloadTo(url: String, dest: File, onProgress: (Long, Long) -> Unit): Long {
+        return try {
+            fetchTo(url, dest, onProgress, withReferer = true)
+        } catch (e: IOException) {
+            // 下载域（`dl*.cdnhjk.net`）跟图片 CDN 不一定是一套规则。官方 App 是浏览器式
+            // 直接下载、本来就不带 Referer；万一带 Referer 被拒就原样再来一次。
+            if (!e.message.orEmpty().startsWith("HTTP 403")) throw e
+            AppLog.w("禁漫打包直链带 Referer 被拒（403），去掉 Referer 重试")
+            fetchTo(url, dest, onProgress, withReferer = false)
+        }
+    }
+
+    private fun fetchTo(
+        url: String,
+        dest: File,
+        onProgress: (Long, Long) -> Unit,
+        withReferer: Boolean,
+    ): Long {
         val b = Request.Builder().url(url).header("User-Agent", UA_APP)
         b.header("Accept", "*/*")
         b.header("X-Requested-With", "com.JMComic3.app")
-        b.header("Referer", "https://${DOMAINS.first()}/")
+        if (withReferer) b.header("Referer", "https://${DOMAINS.first()}/")
         applyAuth(b)
         client.newCall(b.build()).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
