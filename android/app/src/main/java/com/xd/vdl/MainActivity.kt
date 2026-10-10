@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
         AppLog.setup(java.io.File(filesDir, "logs"))
         CookieStore.init(this)
         com.xd.vdl.core.SaveSettings.init(this)
+        com.xd.vdl.core.parse.JmSession.init(this)
         askNotificationPermission()
         askStoragePermission()
         handleIntent(intent)

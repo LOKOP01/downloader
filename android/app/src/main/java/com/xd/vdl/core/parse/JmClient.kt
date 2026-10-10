@@ -482,19 +482,24 @@ object JmClient {
     }.getOrElse { "请求失败：${it.javaClass.simpleName}: ${it.message}" }
 
     /**
-     * 诊断用：当前请求会带上什么 Cookie（只回键名与长度，不回显值）。
+     * 诊断用：当前请求会带上什么凭据（只回键名与长度，不回显值）。
      *
-     * 「填了 AVS 还是说未登录」这类问题，第一步就得确认 Cookie 到底有没有带上、
-     * 键名对不对 —— 光看界面上的「已登录」标记是看不出来的。
+     * 「填了 AVS 还是说未登录」这类问题，第一步就得确认凭据到底有没有带上、
+     * 来自哪儿（账号登录 vs 设置页手填）、有没有 Authorization ——
+     * 光看界面上的「已登录」标记看不出来。
      */
     internal fun cookieDebug(): String {
-        val ck = cookieHeader()
-        if (ck.isEmpty()) return "本次请求没带 Cookie"
+        val ck = sanitize(cookieHeader())
+        val hasJwt = sanitize(JmSession.jwt).isNotEmpty()
+        val auth = if (hasJwt) "带 Authorization: Bearer" else "没有 Authorization"
+        if (ck.isEmpty()) return "本次请求没带 Cookie，$auth"
+        // 来源很关键：账号登录拿的是接口域的 AVS，手填的多半来自网页，后者不认
+        val src = if (JmSession.avs.isNotEmpty()) "账号登录" else "设置页手填"
         val names = ck.split(';').mapNotNull { seg ->
             val i = seg.indexOf('=')
             if (i > 0) seg.substring(0, i).trim().takeIf { it.isNotEmpty() } else null
         }
-        return "本次请求带了 Cookie：${names.joinToString("/")}（共 ${ck.length} 字符）"
+        return "本次请求带了 Cookie（来源：$src）：${names.joinToString("/")}（共 ${ck.length} 字符），$auth"
     }
 
     /** 当前生效的接口域名，用于补全可能是相对路径的 `download_url` */

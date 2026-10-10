@@ -34,35 +34,55 @@ object JmSession {
 
     private var prefs: SharedPreferences? = null
 
+    /**
+     * 必须在进程入口调用（`MainActivity.onCreate` / `DownloadService.onCreate`）。
+     *
+     * ⚠️ 这里踩过坑：第一版只在 `save()` 里 init，于是**杀进程重开之后**
+     * `prefs` 仍是 null → [loggedIn] 为 false、[avs] 为空，界面显示未登录、
+     * 下载时又退回用户手填的那个网页 AVS，然后服务端回「請先登入」。
+     * 症状看起来像「登录态没保存」，实际是**根本没读**。
+     */
     fun init(context: Context) {
         if (prefs == null) {
             prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         }
     }
 
-    val jwt: String get() = prefs?.getString(KEY_JWT, "").orEmpty()
+    /** 没 init 就读取属于程序错误：读不到登录态，必须留下痕迹 */
+    private fun store(): SharedPreferences? {
+        if (prefs == null) {
+            AppLog.w("JmSession 未初始化就读取（应在 MainActivity / DownloadService 里 init），登录态会读不到")
+        }
+        return prefs
+    }
+
+    val jwt: String get() = store()?.getString(KEY_JWT, "").orEmpty()
 
     /** 接口域签发的 AVS（`login` 返回里的 `s`） */
-    val avs: String get() = prefs?.getString(KEY_AVS, "").orEmpty()
+    val avs: String get() = store()?.getString(KEY_AVS, "").orEmpty()
 
     /** 登录时填的账号，只用于界面显示「已登录：xxx」 */
-    val account: String get() = prefs?.getString(KEY_ACCOUNT, "").orEmpty()
+    val account: String get() = store()?.getString(KEY_ACCOUNT, "").orEmpty()
 
     val loggedIn: Boolean get() = jwt.isNotEmpty() || avs.isNotEmpty()
 
     fun save(context: Context, jwtToken: String, avsToken: String, account: String) {
         init(context)
-        prefs?.edit()
+        // 用 commit（同步落盘）而不是 apply：apply 是异步的，用户登录完立刻从最近任务
+        // 划掉，写入可能还没落盘 —— 表现就是「清后台登录态就没了」。
+        val ok = prefs?.edit()
             ?.putString(KEY_JWT, jwtToken)
             ?.putString(KEY_AVS, avsToken)
             ?.putString(KEY_ACCOUNT, account)
-            ?.apply()
-        AppLog.i("禁漫账号登录成功：$account（jwt ${jwtToken.length} 字符 / avs ${avsToken.length} 字符）")
+            ?.commit() ?: false
+        AppLog.i(
+            "禁漫账号登录成功：$account（jwt ${jwtToken.length} 字符 / avs ${avsToken.length} 字符，落盘=$ok）",
+        )
     }
 
     fun clear(context: Context) {
         init(context)
-        prefs?.edit()?.clear()?.apply()
+        prefs?.edit()?.clear()?.commit()
         AppLog.i("禁漫账号登录态已清除")
     }
 }

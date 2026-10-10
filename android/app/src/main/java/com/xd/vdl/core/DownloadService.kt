@@ -7,6 +7,8 @@ import android.os.IBinder
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
+import com.xd.vdl.core.parse.JmSession
+
 /**
  * 轻量前台服务：只负责让进程在下载期间不被系统回收，
  * 实际下载逻辑在 [DownloadManager]（应用级协程作用域）里跑。
@@ -19,6 +21,9 @@ class DownloadService : Service() {
         super.onCreate()
         instance = this
         Notifications.ensureChannel(this)
+        // 前台服务可能在 Activity 之前被系统拉起来（START_STICKY），
+        // 这里也初始化一次，别让后台下载读到空的禁漫登录态
+        JmSession.init(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
