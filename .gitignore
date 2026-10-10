@@ -69,8 +69,12 @@ douyin-downloader/config.json
 .impeccable.md
 
 # ---------- 临时探测 / 调试脚本 ----------
+# 注意 `_scratch_*/`（带斜杠）只匹配"目录"，匹配不到 `_scratch_verify_xxx.py`
+# 这类"文件"——之前有 4 个调试脚本混进仓库就是这个原因。这里改用
+# `_scratch_*`（不带斜杠）同时覆盖文件与目录。
 _scratch_x_probe/
-_scratch_*/
+_scratch_*
+_dy_*.py
 _tmp/
 *.tmp
 *.bak
