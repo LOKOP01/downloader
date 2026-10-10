@@ -3,7 +3,7 @@
 ; 产物：dist\视频下载器-<version>-setup.exe
 
 #define MyAppName "视频下载器"
-#define MyAppVersion "1.8.10.22"
+#define MyAppVersion "1.8.10.23"
 #define MyAppPublisher "个人项目"
 #define MyAppExeName "视频下载器.exe"
 
@@ -14,9 +14,9 @@ AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppCopyright=仅供个人学习与备份使用
-VersionInfoVersion=1.8.10.22
+VersionInfoVersion=1.8.10.23
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=1.8.10.22
+VersionInfoProductVersion=1.8.10.23
 VersionInfoDescription={#MyAppName} 安装程序
 VersionInfoCopyright=仅供个人学习与备份使用
 DefaultDirName={localappdata}\Programs\{#MyAppName}
@@ -25,7 +25,7 @@ DisableProgramGroupPage=yes
 DisableWelcomePage=no
 OutputDir=..\dist
 OutputBaseFilename=视频下载器-{#MyAppVersion}-setup
-SetupIconFile=..\assets\app.ico
+SetupIconFile=..\assets\app-v2.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 UninstallDisplayName={#MyAppName}
 Compression=lzma2/ultra64

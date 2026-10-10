@@ -4,7 +4,7 @@ import os
 from PyInstaller.utils.hooks import collect_all
 
 _SPECDIR = os.path.dirname(os.path.abspath(SPEC))
-ICON_PATH = os.path.join(_SPECDIR, 'assets', 'app.ico')
+ICON_PATH = os.path.join(_SPECDIR, 'assets', 'app-v2.ico')
 if not os.path.exists(ICON_PATH):
     ICON_PATH = None
 
@@ -51,7 +51,7 @@ except Exception:
     pass
 
 # 随包携带的图标资源（运行期通过 sys._MEIPASS/assets 读取）
-for _f in ('app.ico', 'app.png'):
+for _f in ('app-v2.ico', 'app-v2.png', 'app.ico', 'app.png'):
     _p = os.path.join(_SPECDIR, 'assets', _f)
     if os.path.exists(_p):
         datas.append((_p, 'assets'))

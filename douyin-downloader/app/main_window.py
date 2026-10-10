@@ -28,8 +28,9 @@ def resource_path(*parts) -> str:
 
 
 def app_icon() -> QIcon:
-    """优先用自定义 app.ico，缺失时回退到内置图标。"""
-    for name in ("assets/app.ico", "assets/app.png"):
+    """优先用新版图标，缺失时回退到旧版或内置图标。"""
+    for name in ("assets/app-v2.ico", "assets/app-v2.png",
+                 "assets/app.ico", "assets/app.png"):
         p = resource_path(name.replace("/", os.sep))
         if os.path.exists(p):
             ic = QIcon(p)

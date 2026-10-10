@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">视频下载器</title>
+  <desc id="desc">深海蓝圆角底板，白色下载箭头内嵌镂空播放符号，下方为接收托盘。</desc>
+  <rect x="32" y="32" width="960" height="960" rx="224" fill="#1A4A8E"/>
+  <path fill="#FAFAFA" fill-rule="evenodd" d="M 432 232 H 592 Q 608 232 608 248 V 454 H 730 Q 750 454 736 470 L 530 674 Q 512 692 494 674 L 288 470 Q 274 454 294 454 H 416 V 248 Q 416 232 432 232 Z M 484 282 Q 474 276 474 288 V 400 Q 474 412 484 406 L 572 354 Q 584 347 572 340 Z"/>
+  <path d="M 304 700 V 752 Q 304 784 336 784 H 688 Q 720 784 720 752 V 700" fill="none" stroke="#FAFAFA" stroke-width="56" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
