@@ -381,7 +381,10 @@ object JmClient {
      * 失败（网络/未登录）返回 null，调用方回退逐张下载。
      */
     internal fun albumDownload(albumId: String): JmAlbumZip? = runCatching {
-        JmAlbumZip.parse(apiGet("/album_download_2/$albumId").first)
+        // 官方 App 的 fetchGet 会给每个 GET 补一个 lang，这里也照做（保持与它完全一致）
+        JmAlbumZip.parse(
+            apiGet("/album_download_2/$albumId", params = mapOf("lang" to "TW")).first,
+        )
     }.onFailure {
         AppLog.w("禁漫打包接口不可用：${it.javaClass.simpleName}: ${it.message}")
     }.getOrNull()
@@ -478,7 +481,7 @@ object JmClient {
      * 设置页的「测试打包直链」用它 —— 解析成功与否都无所谓，要看的是服务端原话。
      */
     internal fun albumDownloadRaw(albumId: String): String = runCatching {
-        apiGet("/album_download_2/$albumId").first
+        apiGet("/album_download_2/$albumId", params = mapOf("lang" to "TW")).first
     }.getOrElse { "请求失败：${it.javaClass.simpleName}: ${it.message}" }
 
     /**

@@ -48,6 +48,7 @@ import com.xd.vdl.BuildConfig
 import com.xd.vdl.core.Platform
 import com.xd.vdl.core.SaveSettings
 import com.xd.vdl.core.download.JmDownloadMode
+import com.xd.vdl.core.parse.JmAlbumZip
 import com.xd.vdl.core.parse.JmClient
 import com.xd.vdl.core.parse.JmSession
 import com.xd.vdl.core.net.CookieStore
@@ -396,7 +397,22 @@ private fun JmZipTestDialog(onClose: () -> Unit) {
                             result = ""
                             scope.launch {
                                 result = withContext(Dispatchers.IO) {
-                                    JmClient.albumDownloadRaw(id.trim())
+                                    val raw = JmClient.albumDownloadRaw(id.trim())
+                                    // 既给「人话」也给原始返回：`status` 是 0 和「没这个字段」
+                                    // 是完全不同的两种情况，只看结论会误判
+                                    val parsed = runCatching { JmAlbumZip.parse(raw) }.getOrNull()
+                                    if (parsed == null) {
+                                        "原始返回：\n$raw"
+                                    } else {
+                                        buildString {
+                                            append("status = ${parsed.status.ifEmpty { "(无)" }}")
+                                            append("   msg = ${parsed.msg.ifEmpty { "(无)" }}\n")
+                                            append("title = ${parsed.title.ifEmpty { "(无)" }}\n")
+                                            append("fileSize = ${parsed.fileSize.ifEmpty { "(无)" }}\n")
+                                            append("download_url = ${parsed.downloadUrl.ifEmpty { "(无)" }}\n")
+                                            append("\n原始返回：\n$raw")
+                                        }
+                                    }
                                 }
                                 busy = false
                             }

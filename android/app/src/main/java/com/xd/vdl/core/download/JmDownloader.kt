@@ -203,11 +203,11 @@ object JmDownloader {
             return false
         }
         if (!meta.usable) {
-            // status == "0" 就是服务端说的「請先登入」。把原文回显出来，
-            // 免得用户看到一句笼统的「未登录」不知道到底是没填 Cookie 还是 Cookie 失效。
-            val why = meta.msg.ifEmpty { if (meta.loggedIn) "没拿到直链" else "未登录" }
-            AppLog.w("禁漫官方打包不可用：$why | ${JmClient.cookieDebug()}")
-            onChapter("官方打包不可用（$why），改为逐张下载…")
+            // 把服务端原话 + 原始返回都写进日志：`status` 是 "0" 和「响应里压根没这个字段」
+            // 是完全不同的两种情况，只写一句「未登录」会把它们混成一种，没法继续查。
+            AppLog.w("禁漫官方打包不可用：${meta.reason} | ${JmClient.cookieDebug()}")
+            AppLog.w("禁漫打包接口原始返回：${meta.raw.take(300)}")
+            onChapter("官方打包不可用（${meta.reason}），改为逐张下载…")
             return false
         }
 

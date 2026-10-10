@@ -53,4 +53,48 @@ class JmAlbumZipTest {
         assertFalse(z.usable)
         assertEquals("", z.title)
     }
+
+    // ---- reason：必须能区分「status 是 0」和「压根没有 status 字段」----
+    // 只写一句「未登录」会把这两种完全不同的情况混成一种，没法继续排查。
+
+    @Test
+    fun reasonPrefersServerMessage() {
+        val z = JmAlbumZip.parse("""{"status":"0","msg":"請先登入"}""")
+        assertEquals("請先登入", z.reason)
+    }
+
+    @Test
+    fun reasonReportsStatusWhenNoMessage() {
+        val z = JmAlbumZip.parse("""{"status":"0","msg":""}""")
+        assertEquals("服务端说未登录（status=0）", z.reason)
+    }
+
+    @Test
+    fun reasonDistinguishesMissingStatus() {
+        val z = JmAlbumZip.parse("""{"code":200,"data":{"foo":1}}""")
+        assertEquals("响应里没有 status 字段", z.reason)
+    }
+
+    @Test
+    fun reasonReportsLoggedInButNoLink() {
+        val z = JmAlbumZip.parse("""{"status":"1","title":"x.zip"}""")
+        assertTrue(z.loggedIn)
+        assertFalse(z.usable)
+        assertEquals("拿到登录态但没给直链", z.reason)
+    }
+
+    @Test
+    fun reasonIsEmptyWhenUsable() {
+        val z = JmAlbumZip.parse(
+            """{"status":"1","download_url":"https://x/y.zip","title":"t"}""",
+        )
+        assertTrue(z.usable)
+        assertEquals("", z.reason)
+    }
+
+    @Test
+    fun keepsRawBodyForLogging() {
+        val body = """{"status":"0","msg":"請先登入"}"""
+        assertEquals(body, JmAlbumZip.parse(body).raw)
+    }
 }

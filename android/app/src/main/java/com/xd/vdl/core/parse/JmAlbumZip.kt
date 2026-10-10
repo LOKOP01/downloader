@@ -19,9 +19,23 @@ internal data class JmAlbumZip(
     val downloadUrl: String,
     /** 服务端给的说明，未登录时就是「請先登入」——直接回显给用户，比自己猜强 */
     val msg: String,
+    /** 原样的 `status` 字段（空串 = 响应里没这个字段，跟「status 是 0」是两回事） */
+    val status: String,
+    /** 解密后的原始返回，只用来写日志排错 */
+    val raw: String,
 ) {
     /** 有登录态且有直链，才值得走官方打包 */
     val usable: Boolean get() = loggedIn && downloadUrl.isNotEmpty()
+
+    /** 不可用时给出一句**能区分原因**的话 —— 别再一律写「未登录」 */
+    val reason: String
+        get() = when {
+            usable -> ""
+            msg.isNotEmpty() -> msg
+            loggedIn -> "拿到登录态但没给直链"
+            status.isEmpty() -> "响应里没有 status 字段"
+            else -> "服务端说未登录（status=$status）"
+        }
 
     companion object {
         fun parse(body: String): JmAlbumZip {
@@ -34,6 +48,8 @@ internal data class JmAlbumZip(
                 imageUrl = json.optString("img_url"),
                 downloadUrl = json.optString("download_url"),
                 msg = json.optString("msg"),
+                status = status,
+                raw = body,
             )
         }
     }
