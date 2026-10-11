@@ -47,14 +47,68 @@ object JmDownloader {
     /**
      * 同时保持多少张图「在飞」。
      *
-     * 不再往上加的原因在内存：每路都要把原图解码成 ARGB_8888 位图再重排，
-     * 一张 1200×1800 的页就是 ~8MB，加上重排的副本与编码缓冲，单路峰值近 20MB；
-     * 4 路约 80MB，已经能吃掉串行时的绝大部分等待；8 路在中低端机上容易被系统杀。
+     * 桌面版走 jmcomic 的 `threading.image = 8`，这里对齐成 8。
+     *
+     * 上限由**内存**决定，每路峰值 = 两张全尺寸位图（原图 + 重排副本）+ 源字节 + 编码缓冲。
+     * 实测（本子 1480165，672 页，768×1344 与 1280×777 居多）：单页位图 3.8 MB、源文件 140 KB
+     * → **每路约 8.3 MB**，8 路 ≈ 66 MB。给 App 的额度通常 256~512 MB，够用。
+     * （最初压成 4 路是按每路 ~20MB 估的，偏保守。）
+     *
+     * ⚠️ 但**并发不等于快**：收益取决于瓶颈在「延迟」还是「带宽」。走代理时单页 RTT 高，
+     * 降延迟的收益大；若代理带宽已经跑满，再加并发只会互相抢带宽。所以结束时会把
+     * 「用时 / 平均每页耗时 / 有效 MB/s」写进日志 —— 拿 4 路与 8 路各跑一次比一比，
+     * 平均每页耗时没降就说明是带宽瓶颈，改回去更省资源。
      */
-    private const val CONCURRENCY = 4
+    private const val CONCURRENCY = 8
 
     /** 章节目录（每章一次 `/chapter` 小请求）也并发几路，多章本子不必一章章等 */
     private const val PLAN_CONCURRENCY = 4
+
+    /**
+     * 分给「位图」的内存预算。并发路数按实测页大小反推，超了就自动收窄。
+     *
+     * 为什么需要它：上面 8 路 ≈ 66 MB 是按**实测那一本**（单页 3.8 MB）算的。
+     * 禁漫有大量高清扫图（1600×2400 → 单页 15 MB），那种本子 8 路要 ~250 MB，
+     * 低端机上会被系统杀。取 96 MB 是给 App 的界面、OkHttp 等留足余量。
+     */
+    private const val BITMAP_BUDGET = 96L * 1024 * 1024
+
+    /** 每页额外的固定开销（源字节 + 编码缓冲） */
+    private const val PER_PAGE_OVERHEAD = 1L * 1024 * 1024
+
+    /** 每处理这么多页重新估一次并发，避免一开始被第一页的极端尺寸带偏 */
+    private const val CONCURRENCY_RECHECK = 32
+
+    /**
+     * 按实测平均页大小反推能开几路。
+     *
+     * `avgBitmapBytes <= 0`（还没测到）时先用满 [CONCURRENCY]。
+     * 每路峰值 ≈ 位图 ×2（原图 + 重排副本）+ 固定开销。
+     */
+    internal fun concurrencyFor(avgBitmapBytes: Long): Int {
+        if (avgBitmapBytes <= 0) return CONCURRENCY
+        val perSlot = avgBitmapBytes * 2 + PER_PAGE_OVERHEAD
+        val n = (BITMAP_BUDGET / perSlot).toInt()
+        return n.coerceIn(2, CONCURRENCY)
+    }
+
+    /** 已解码页的位图字节数累计（用来估并发） */
+    private class BitmapStats {
+        private val total = java.util.concurrent.atomic.AtomicLong()
+        private val count = java.util.concurrent.atomic.AtomicLong()
+
+        fun add(bytes: Int) {
+            if (bytes > 0) {
+                total.addAndGet(bytes.toLong())
+                count.incrementAndGet()
+            }
+        }
+
+        fun avg(): Long {
+            val c = count.get()
+            return if (c == 0L) 0L else total.get() / c
+        }
+    }
 
     /** 判断「这是不是一页图」用；官方打包直链拿回来的包也要按这个数一数 */
     private val IMAGE_EXT = listOf(".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif")
@@ -85,6 +139,8 @@ object JmDownloader {
         onChapter: (text: String) -> Unit,
         onZip: (file: File, entryCount: Int) -> Unit,
     ) = withContext(Dispatchers.IO) {
+        // 记时只为回答一个问题：并发加上去到底有没有用（见 CONCURRENCY 的注释）
+        val startedAt = System.currentTimeMillis()
         val chapters = info.jmChapters.ifEmpty {
             listOf(info.jmId to info.title)
         }
@@ -132,7 +188,10 @@ object JmDownloader {
             }
         }
         if (jobs.isEmpty()) throw IOException("没有取到任何图片")
-        AppLog.i("禁漫目录就绪：${chapters.size} 章 / ${jobs.size} 张，并发 $CONCURRENCY")
+        AppLog.i(
+            "禁漫目录就绪：${chapters.size} 章 / ${jobs.size} 张，并发上限 $CONCURRENCY" +
+                "（位图预算 ${BITMAP_BUDGET / 1024 / 1024} MB，遇大页会自动收窄）",
+        )
         onProgress(0, jobs.size)
 
         // ⚠️ `File.createTempFile` 要求 prefix **至少 3 个字符**，否则抛
@@ -145,32 +204,54 @@ object JmDownloader {
             ZipOutputStream(BufferedOutputStream(FileOutputStream(zip))).use { zos ->
                 val crc = CRC32()
                 val domains = JmClient.imageDomains()
+                val stats = BitmapStats()
                 var done = 0
-                // 滑动窗口并发：最多 CONCURRENCY 张同时在飞，写包仍严格按页序
-                pipelineOrdered(
-                    items = jobs,
-                    concurrency = CONCURRENCY,
-                    // 起始域名按页号散开：六个镜像等价，摊开能多吃几条连接；
-                    // 某个镜像挂了也不怕，fetchDecodedJpeg 会自己往后逐个试
-                    onStart = { _idx, job ->
-                        coroutineContext.ensureActive()
-                        onChapter(job.label)
-                    },
-                    transform = { idx, job ->
-                        fetchDecodedJpeg(job, domains, idx % domains.size)
-                    },
-                    consume = { _idx, job, bytes ->
-                        val data = bytes
-                            ?: throw IOException("图片 ${job.filename} 下载或解码失败")
-                        writeEntry(zos, job.entryName, data, crc)
-                        entryCount++
-                        done++
-                        onProgress(done, jobs.size)
-                    },
-                )
+                var width = CONCURRENCY
+                var i = 0
+                // 分块跑：每块处理后按**实测页大小**重估并发，块内仍严格按页序写包。
+                // 首块先用满 8 路（大多数本子是 3~4 MB/页），遇到高清扫图会自动收窄。
+                while (i < jobs.size) {
+                    val block = jobs.subList(i, minOf(i + CONCURRENCY_RECHECK, jobs.size))
+                    pipelineOrdered(
+                        items = block,
+                        concurrency = width,
+                        onStart = { _idx, job ->
+                            coroutineContext.ensureActive()
+                            onChapter(job.label)
+                        },
+                        transform = { idx, job ->
+                            fetchDecodedJpeg(job, domains, idx % domains.size, stats)
+                        },
+                        consume = { _idx, job, bytes ->
+                            val data = bytes
+                                ?: throw IOException("图片 ${job.filename} 下载或解码失败")
+                            writeEntry(zos, job.entryName, data, crc)
+                            entryCount++
+                            done++
+                            onProgress(done, jobs.size)
+                        },
+                    )
+                    i += block.size
+                    val next = concurrencyFor(stats.avg())
+                    if (next != width) {
+                        AppLog.i(
+                            "禁漫并发调整：$width → $next" +
+                                "（实测 ${stats.avg()} 字节/页，预算 ${BITMAP_BUDGET} 字节）",
+                        )
+                        width = next
+                    }
+                }
             }
             if (entryCount == 0) throw IOException("压缩包内容为空")
-            AppLog.i("禁漫压缩包完成《${info.title}》$entryCount 张 / ${zip.length()} 字节")
+            val ms = System.currentTimeMillis() - startedAt
+            val perPage = if (entryCount > 0) ms.toDouble() / entryCount else 0.0
+            val mbps = if (ms > 0) zip.length() / 1024.0 / 1024.0 / (ms / 1000.0) else 0.0
+            AppLog.i(
+                "禁漫压缩包完成《${info.title}》$entryCount 张 / ${zip.length()} 字节 | " +
+                    "用时 ${ms / 1000.0} 秒，平均每页 ${"%.0f".format(perPage)} ms，" +
+                    "有效 ${"%.2f".format(mbps)} MB/s，并发 $CONCURRENCY" +
+                    "（平均每页耗时随并发下降 → 瓶颈是延迟；不降 → 瓶颈是带宽）",
+            )
             onZip(zip, entryCount)
         } catch (e: Exception) {
             zip.delete()
@@ -218,6 +299,7 @@ object JmDownloader {
         }
         val zip = File.createTempFile("jmzip", ".zip", ctx.cacheDir)
         return try {
+            val t0 = System.currentTimeMillis()
             onChapter("官方打包下载中…" + (if (meta.fileSize.isNotEmpty()) " ${meta.fileSize}" else ""))
             AppLog.i("禁漫走官方打包直链：${meta.title} ${meta.fileSize} $url")
             // 阻塞下载里没法直接读协程上下文（`coroutineContext` 是 suspend 属性，
@@ -237,7 +319,11 @@ object JmDownloader {
                 zip.delete()
                 false
             } else {
-                AppLog.i("禁漫官方打包完成：$entries 张 / ${zip.length()} 字节")
+                val ms = System.currentTimeMillis() - t0
+                AppLog.i(
+                    "禁漫官方打包完成：$entries 张 / ${zip.length()} 字节 | 用时 ${ms / 1000.0} 秒，" +
+                        "有效 ${"%.2f".format(zip.length() / 1024.0 / 1024.0 / (ms / 1000.0))} MB/s（单请求）",
+                )
                 onZip(zip, entries)
                 true
             }
@@ -307,6 +393,7 @@ object JmDownloader {
         job: PageJob,
         domains: List<String>,
         startIdx: Int,
+        stats: BitmapStats? = null,
     ): ByteArray? = withContext(Dispatchers.IO) {
         for (k in domains.indices) {
             coroutineContext.ensureActive()
@@ -320,6 +407,8 @@ object JmDownloader {
 
             val raw = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }
                 .getOrNull() ?: continue
+            // 只统计不解码的页不算数（它们不进内存峰值）
+            stats?.add(raw.width * raw.height * 4)
 
             val fixed = JmScramble.decode(raw, num)
             if (fixed !== raw) raw.recycle()
@@ -341,7 +430,7 @@ object JmDownloader {
                 scrambleId = scrambleOf(info, chapterId),
                 label = "",
             )
-            fetchDecodedJpeg(job, JmClient.imageDomains(), 0)
+            fetchDecodedJpeg(job, JmClient.imageDomains(), 0, null)
                 ?: throw IOException("第 $index 页预览失败")
         }
 }
