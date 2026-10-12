@@ -171,7 +171,7 @@ def get_dsl(
     模块级快捷接口，多数场景直接用这个。
 
     示例：
-        from xhs_utils.xhs_pc.dsl import get_dsl
+        from app.core.xhsapi.xhs_pc.dsl import get_dsl
         _dsl = get_dsl()
     """
     return _default.get(

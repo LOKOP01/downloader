@@ -17,6 +17,9 @@
 | Pornhub | |
 | hanime1 | |
 | 禁漫天堂 | 种子号解析 |
+| E-Hentai | 免登录可下 1280 宽压缩版，登录后可下原图 |
+
+> 上表是**桌面端**的完整列表。安卓端少三个：Iwara / Pornhub / hanime1 目前只有桌面端支持。
 
 ## 目录结构
 
@@ -29,13 +32,22 @@
 │   │   │   ├── sites.py        # 各站点解析规则（主要体量在这里）
 │   │   │   ├── downloader.py   # 分段下载（IDM 式多连接）
 │   │   │   ├── parser.py       # 链接识别与路由
+│   │   │   ├── domain.py       # 各站点域名集合与 Referer 规则
+│   │   │   ├── site_ctx.py     # 站点上下文（Cookie / profile 目录 / 选项）
+│   │   │   ├── models.py       # 数据模型（VideoInfo 等）
+│   │   │   ├── config.py       # 配置读写（DEFAULT_CONFIG 是默认值唯一来源）
+│   │   │   ├── workers.py      # 后台线程（登录、预览、封面）
+│   │   │   ├── proxy.py        # 系统代理读取 + 端口漂移时自动回退
 │   │   │   ├── ffmpeg.py       # 音视频合并组件管理
 │   │   │   ├── browser_bridge.py  # Playwright 驱动本机 Edge 取 Cookie
-│   │   │   └── jmcomic_bridge.py  # 禁漫图片解码
+│   │   │   ├── jmcomic_bridge.py  # 禁漫图片解码
+│   │   │   ├── ehentai_bridge.py  # E-Hentai 画廊解析与逐张下载
+│   │   │   └── xhsapi/         # 小红书签名直连（vendor，见该目录 __init__ 的许可说明）
 │   │   ├── view/               # 界面（qfluentwidgets）
 │   │   └── main_window.py
 │   ├── assets/                 # 图标资源
 │   ├── installer/              # Inno Setup 安装包脚本
+│   ├── reference/              # 第三方参考实现，不参与构建（见其 README）
 │   ├── tests/                  # 单元测试
 │   ├── build_exe.spec          # PyInstaller 打包配置
 │   ├── app_version.txt         # 版本号唯一来源（exe 版本资源）
@@ -90,11 +102,13 @@ pyinstaller build_exe.spec
 
 1. 粘链接，程序识别站点并解析，选画质，下载。
 2. 下载完成后可自动复制文件到剪贴板（配置项 `auto_copy_file`）。
-3. 需要登录的站点（X / Instagram / 小红书 / 禁漫）在设置页填 Cookie，或用内置的浏览器登录流程导出。
+3. 需要登录的站点（X / Instagram / 小红书 / 禁漫 / E-Hentai）在设置页填 Cookie，或用内置的浏览器登录流程导出。
 4. B 站 DASH 合并需要 ffmpeg，在「设置 → 合并组件（ffmpeg）」里下载，不是 pip 依赖。
 5. 解析失败或下载卡住，看 `logs/app.log`。
 
 ### 配置文件 `config.json`
+
+下列默认值与 `app/core/config.py` 的 `DEFAULT_CONFIG` 保持一致（那里是默认值的唯一来源）：
 
 ```jsonc
 {
@@ -105,10 +119,12 @@ pyinstaller build_exe.spec
   "bili_cookie": "",                // Bilibili
   "xhs_cookie": "",                 // 小红书
   "jm_cookie": "",                  // 禁漫天堂（AVS）
-  "naming_rule": "timestamp",       // timestamp / author_title / title / id_title
+  "eh_cookie": "",                  // E-Hentai（登录后可下原图）
+  "eh_original": false,             // E-Hentai 优先下原图（更慢、更易失败、耗站点配额）
+  "naming_rule": "unique_id",       // unique_id / timestamp / author_title / title / id_title
   "max_concurrent": 3,              // 同时下载数
   "theme": "dark",                  // dark / light / auto
-  "accent_color": "indigo",         // 界面强调色
+  "accent_color": "deepsea",        // 界面强调色（见 view/design.ACCENTS，共 9 套）
   "create_author_folder": true,     // 按作者建子目录
   "download_cover": false,          // 同时下载封面
   "auto_copy_file": true,           // 下载完成后复制文件到剪贴板
@@ -155,8 +171,26 @@ APK 输出在 `android/app/build/outputs/apk/`。
 ## 几点说明
 
 - Cookie 在桌面端明文存在 `config.json`，安卓端存在 `SharedPreferences`（`vdl_cookies`），都不加密。
-- 桌面端用 Playwright 驱动本机 Edge 时会生成 `edge_profile/`，里面是登录态，已在 `.gitignore` 排除。
+- 桌面端用 Playwright 驱动本机 Edge 时会生成 `edge_profile*/`（每个平台一个），里面是登录态，已在 `.gitignore` 排除。
+  新增平台时记得同步 `core/config.py` 的属性与 `installer/setup.iss` 卸载逻辑，否则卸载后会残留登录凭据。
 - `JmClient.kt` / `jmcomic_bridge.py` 里的 `SECRET`（如 `185Hcomic3PAPP7R`）是该 App 通信协议的公开逆向常量，不是个人凭据。
+- 桌面端支持多连接分段下载；若需要代理的站点报 `CONNECT tunnel failed, response 502`，
+  多半是本地代理端口变了而系统代理没跟着更新 —— `core/proxy.py` 会自动探测可用端口。
+
+## 第三方代码与许可
+
+本仓库**未声明许可证**（个人自用项目，保留所有权利）。未授权任何人使用、复制、
+修改或分发本仓库内容。仓库内另含以下第三方代码，授权状态各不相同：
+
+| 位置 | 来源 | 许可证 | 参与构建 |
+|---|---|---|---|
+| `douyin-downloader/app/core/xhsapi/` | [cv-cat/Spider_XHS](https://github.com/cv-cat/Spider_XHS)（派生裁剪） | **上游未声明** | 是 |
+| `douyin-downloader/reference/ref_xbogus.py` | [Douyin_TikTok_Download_API](https://github.com/Evil0ctal/Douyin_TikTok_Download_API) | Apache-2.0 | 否（仅参考） |
+| `douyin-downloader/installer/ChineseSimplified.isl` | [Inno Setup 简体中文翻译](https://github.com/kira-96/Inno-Setup-Chinese-Simplified-Translation)（文件头保留维护者信息） | 随上游 | 是 |
+
+> **`xhsapi/` 的授权状态不明确**：上游仓库没有 LICENSE 文件（GitHub 的 license 接口返回 404），
+> 未声明许可证即默认保留所有权利。本仓库目前是个人自用，但**若要对外分发或给本仓库加许可证，
+> 必须先解决这一条** —— 详见 `app/core/xhsapi/__init__.py` 里的说明。
 
 ## 免责
 

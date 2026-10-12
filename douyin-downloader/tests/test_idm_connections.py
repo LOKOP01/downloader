@@ -119,7 +119,7 @@ class FetchTrackTest(unittest.TestCase):
         seen = {"single": False}
 
         def fake_single(url, tmp, headers, cancel, info_, base_done=0,
-                        base_total=0):
+                        base_total=0, base_total_seen=0):
             seen["single"] = True
             return 1024 * 1024
 
@@ -136,7 +136,7 @@ class FetchTrackTest(unittest.TestCase):
         seen = {"single": False}
 
         def fake_single(url, tmp, headers, cancel, info_, base_done=0,
-                        base_total=0):
+                        base_total=0, base_total_seen=0):
             seen["single"] = True
             return 20 * 1024 * 1024
 

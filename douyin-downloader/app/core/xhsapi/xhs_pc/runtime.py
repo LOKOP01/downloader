@@ -2,7 +2,7 @@
 """Node runtime adapter for the XHS PC JavaScript algorithms.
 
 Shared cryptographic/signature algorithms live under
-:mod:`xhs_utils.xhs_core.js`（唯一来源）；本目录仅保留 PC 特有模板
+:mod:`app.core.xhsapi.xhs_core.js`（唯一来源）；本目录仅保留 PC 特有模板
 （profile/rap 等）。This module only validates Python inputs, invokes Node,
 and validates outputs; it intentionally does not maintain a second Python
 implementation.

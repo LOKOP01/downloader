@@ -1,9 +1,9 @@
-﻿; 视频下载器 — Inno Setup 安装脚本
+; 视频下载器 — Inno Setup 安装脚本
 ; 编译：installer\build_setup.ps1 或 ISCC.exe setup.iss
 ; 产物：dist\视频下载器-<version>-setup.exe
 
 #define MyAppName "视频下载器"
-#define MyAppVersion "1.8.10.27"
+#define MyAppVersion "1.8.10.28"
 #define MyAppPublisher "个人项目"
 #define MyAppExeName "视频下载器.exe"
 
@@ -14,9 +14,9 @@ AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppCopyright=仅供个人学习与备份使用
-VersionInfoVersion=1.8.10.27
+VersionInfoVersion=1.8.10.28
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=1.8.10.27
+VersionInfoProductVersion=1.8.10.28
 VersionInfoDescription={#MyAppName} 安装程序
 VersionInfoCopyright=仅供个人学习与备份使用
 DefaultDirName={localappdata}\Programs\{#MyAppName}
@@ -111,12 +111,17 @@ begin
               '选择「是」将清除各平台登录信息和下载设置。',
               mbConfirmation, MB_YESNO) = IDYES then
     begin
+      // 逐个列出而不通配：DelTree 不认通配符，且这里要删的正是登录态，
+      // 多删一个目录的代价远大于漏删，宁可显式。
+      // 注意：新增平台的 profile 目录时，这里和 core/config.py 的属性要一起加，
+      // 否则卸载后会残留该平台的登录凭据（edge_profile_eh 就这么漏过一次）。
       DelTree(ExpandConstant('{app}\edge_profile'), True, True, True);
       DelTree(ExpandConstant('{app}\edge_profile_ins'), True, True, True);
       DelTree(ExpandConstant('{app}\edge_profile_x'), True, True, True);
       DelTree(ExpandConstant('{app}\edge_profile_bili'), True, True, True);
       DelTree(ExpandConstant('{app}\edge_profile_xhs'), True, True, True);
       DelTree(ExpandConstant('{app}\edge_profile_jm'), True, True, True);
+      DelTree(ExpandConstant('{app}\edge_profile_eh'), True, True, True);
       DeleteFile(ExpandConstant('{app}\config.json'));
     end;
   end;
