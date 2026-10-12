@@ -104,23 +104,9 @@ def _jm_time(text: str) -> int:
 
 
 def _system_proxies() -> dict:
-    """读 Windows 系统代理，并补上 http:// 前缀，curl_cffi 才能走 Clash。"""
-    try:
-        from common import ProxyBuilder
-        raw = ProxyBuilder.system_proxy() or {}
-    except Exception:  # noqa: BLE001
-        return {}
-    out = {}
-    for key, value in raw.items():
-        if not value:
-            continue
-        text = str(value).strip()
-        if not text:
-            continue
-        if '://' not in text:
-            text = 'http://' + text
-        out[key] = text
-    return out
+    """读 Windows 系统代理（补 http:// 前缀），curl_cffi 才能走 Clash。"""
+    from .proxy import system_proxies
+    return system_proxies()
 
 
 def build_option(base_dir: str, cookie: str = "", retry_times: int = 5):

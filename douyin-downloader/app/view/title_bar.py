@@ -68,8 +68,32 @@ class AppTitleBar(TitleBar):
         self.closeBtn.setHoverColor(QColor("#FFFFFF"))
         self.closeBtn.setPressedColor(QColor("#FFFFFF"))
 
-        # 主题切换后底色/分隔线颜色要跟着变
-        qconfig.themeChangedFinished.connect(self.update)
+        self._apply_button_colors()
+        # 主题切换后按钮底色、图标色都要重设（只 update 重绘是不够的，
+        # 颜色值是构造时算出来的，换主题不会自己跟着变）
+        qconfig.themeChangedFinished.connect(self._on_theme_changed)
+
+    def _apply_button_colors(self):
+        """设置三个窗口按钮的**图标色**。
+
+        必做：qframelesswindow 的 `TitleBarButton` 默认把图标色初始化成
+        `QColor(0, 0, 0)`（纯黑）——暗色主题下就是黑图标配深色标题栏，
+        三个键基本看不见（2026-10-11 用户反馈）。这里统一改成文字次级色，
+        hover 时升到正文色，保持和其它控件同一套 token。
+        """
+        normal = _color(D.TEXT_SECONDARY)
+        strong = _color(D.TEXT_PRIMARY)
+        for btn in (self.minBtn, self.maxBtn, self.closeBtn):
+            btn.setNormalColor(normal)
+        for btn in (self.minBtn, self.maxBtn):
+            btn.setHoverColor(strong)
+            btn.setPressedColor(strong)
+        # 关闭键 hover 是红底，必须配白字（上面已设），常态仍用次级色
+        self.closeBtn.setNormalColor(normal)
+
+    def _on_theme_changed(self):
+        self._apply_button_colors()
+        self.update()
 
     # ------------------------------------------------------------------ #
     def setTitle(self, title: str):

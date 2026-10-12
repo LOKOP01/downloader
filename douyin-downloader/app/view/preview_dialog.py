@@ -16,7 +16,8 @@ from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QPushButton,
 from ..core.domain import needs_cookie_for_url
 from ..core.downloader import headers_for
 from ..core.models import clean_cookie
-from ..core.workers import JmPreviewOpenWorker, JmPreviewPageWorker
+from ..core.workers import (EhPreviewOpenWorker, EhPreviewPageWorker,
+                            JmPreviewOpenWorker, JmPreviewPageWorker)
 
 # 后台线程活到自然结束：窗口关掉时线程可能还在跑，跟着窗口一起析构会触发
 # 「QThread: Destroyed while thread is still running」并把进程带崩。
@@ -164,10 +165,12 @@ class _MediaHandler(BaseHTTPRequestHandler):
 class PreviewDialog(QDialog):
     """视频流预览及图集翻页；accept 表示用户在预览中确认下载。"""
 
-    def __init__(self, info, url="", label="", cookies="", cover=None, parent=None):
+    def __init__(self, info, url="", label="", cookies="", cover=None,
+                 prefer_original=False, parent=None):
         super().__init__(parent)
         self.info = info
         self.cookies = cookies
+        self.prefer_original = bool(prefer_original)
         self.index = 0
         self._reply = None
         self._proxy = None
@@ -183,6 +186,14 @@ class PreviewDialog(QDialog):
         self._jm_pages = 0
         self._jm_chapters = 0
         self._jm_busy = False
+        # E-Hentai 预览状态
+        self._eh = None
+        self._eh_page = 0
+        self._eh_total = 1
+        self._eh_busy = False
+        self._eh_prev = None
+        self._eh_next = None
+        self._eh_counter = None
         self.setWindowTitle("下载前预览")
         self.resize(760, 640)
         layout = QVBoxLayout(self)
@@ -213,6 +224,8 @@ class PreviewDialog(QDialog):
         if info.is_image:
             if info.source == "jmcomic":
                 self._setup_jm(info, cover)
+            elif info.source == "ehentai":
+                self._setup_eh(info)
             else:
                 prev = QPushButton("上一张", self)
                 next_image = QPushButton("下一张", self)
@@ -440,6 +453,90 @@ class PreviewDialog(QDialog):
         self.status.setText("")
         self._jm_show(data)
         self._jm_set_busy(False)
+
+    # -------------------------------------------------------------- E-Hentai
+    # E-Hentai 的每张图都要先请求图片页才能拿到 H@H 直链（还要会换节点），
+    # 同样没法把固定 URL 交给 QNetworkAccessManager。走后台线程懒加载。
+    def _setup_eh(self, info):
+        self.detail.setText("内容预览（每张图需联网逐张取回）")
+        self.stage.setText("正在连接 E-Hentai…")
+        self._eh_prev = QPushButton("上一张", self)
+        self._eh_next = QPushButton("下一张", self)
+        self._eh_counter = QLabel("加载中…", self)
+        self._eh_prev.clicked.connect(lambda: self._eh_go(-1))
+        self._eh_next.clicked.connect(lambda: self._eh_go(1))
+        self.controls.addWidget(self._eh_prev)
+        self.controls.addStretch()
+        self.controls.addWidget(self._eh_counter)
+        self.controls.addStretch()
+        self.controls.addWidget(self._eh_next)
+        self._eh_busy = True
+        self._eh_page = 0
+        self._eh_total = 1
+        self._eh_set_busy(True)
+        self.status.setText("首次打开要取画廊目录和第一张，稍等")
+        worker = _keep(EhPreviewOpenWorker(info.play_url, self.cookies,
+                                          self.prefer_original))
+        worker.opened.connect(self._eh_opened)
+        worker.failed.connect(self._eh_failed)
+        worker.start()
+
+    def _eh_set_busy(self, busy):
+        self._eh_busy = bool(busy)
+        for name in ("_eh_prev", "_eh_next"):
+            button = getattr(self, name, None)
+            if button is not None:
+                button.setEnabled(not busy)
+        if not busy:
+            self._eh_refresh()
+
+    def _eh_opened(self, session, pages, data):
+        self._eh = session
+        self._eh_total = max(1, int(pages or 1))
+        self._eh_page = 0
+        self.status.setText("")
+        self._eh_show(data)
+        self._eh_set_busy(False)
+
+    def _eh_failed(self, message):
+        self._eh_set_busy(False)
+        self.status.setText(message)
+
+    def _eh_show(self, data) -> bool:
+        pix = QPixmap()
+        if not data or not pix.loadFromData(data):
+            self.stage.setText("这一张取不到")
+            return False
+        self._show_image(pix)
+        return True
+
+    def _eh_refresh(self):
+        if self._eh_counter is None:
+            return
+        self._eh_counter.setText(f"{self._eh_page + 1}/{self._eh_total}")
+        self._eh_prev.setEnabled(not self._eh_busy and self._eh_page > 0)
+        self._eh_next.setEnabled(not self._eh_busy
+                                 and self._eh_page < self._eh_total - 1)
+
+    def _eh_go(self, step):
+        if self._eh is None or self._eh_busy:
+            return
+        page = self._eh_page + step
+        if not 0 <= page < self._eh_total:
+            return
+        self._eh_set_busy(True)
+        self.status.setText("正在取图…")
+        worker = _keep(EhPreviewPageWorker(self._eh, page))
+        worker.loaded.connect(self._eh_loaded)
+        worker.failed.connect(self._eh_failed)
+        worker.start()
+
+    def _eh_loaded(self, page, total, data):
+        self._eh_page = page
+        self._eh_total = max(1, int(total or 1))
+        self.status.setText("")
+        self._eh_show(data)
+        self._eh_set_busy(False)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)

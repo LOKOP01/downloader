@@ -113,6 +113,7 @@ class DownloadManager(QObject):
     task_added = Signal(object)                       # DownloadTaskInfo
     task_progress = Signal(object)                    # DownloadTaskInfo
     task_finished = Signal(object)                    # DownloadTaskInfo
+    task_notice = Signal(str)                         # 中途提示（如登录态失效降级）
 
     def __init__(self, max_concurrent: int = 3, parent=None,
                  segment_enabled: bool = True,
@@ -125,6 +126,7 @@ class DownloadManager(QObject):
         self._tasks = {}          # task_id -> DownloadTaskInfo
         self._cancel_flags = {}   # task_id -> threading.Event
         self._cookies = {}        # task_id -> Cookie 字符串（用于需要登录态的平台）
+        self._opts = {}           # task_id -> 额外选项（如 E-Hentai 优先原图）
         # task_id -> 有序尝试序列 [(视频地址, 音频地址, [音频备用地址]), ...]
         self._plans = {}
         self._queue = []
@@ -138,7 +140,8 @@ class DownloadManager(QObject):
             fallbacks: list = None, cookies: str = "",
             audio_url: str = "", quality: str = "",
             audio_map: dict = None, url_backups: dict = None,
-            audio_backups: dict = None) -> DownloadTaskInfo:
+            audio_backups: dict = None,
+            prefer_original: bool = False) -> DownloadTaskInfo:
         save_path = self._unique_path(save_path)
         info = DownloadTaskInfo(task_id=uuid.uuid4().hex[:12], url=url,
                                 save_path=save_path, name=name,
@@ -148,6 +151,7 @@ class DownloadManager(QObject):
         with self._lock:
             self._tasks[info.task_id] = info
             self._cookies[info.task_id] = cookies or ""
+            self._opts[info.task_id] = {"prefer_original": bool(prefer_original)}
             self._plans[info.task_id] = plan
             self._queue.append(info.task_id)
         log.info("入队 %s | %s | 画质=%s | 候选=%d | 音频轨=%s | 保存到 %s",
@@ -299,6 +303,7 @@ class DownloadManager(QObject):
                     continue
                 self._tasks.pop(tid, None)
                 self._cookies.pop(tid, None)
+                self._opts.pop(tid, None)
                 self._plans.pop(tid, None)
                 self._cancel_flags.pop(tid, None)
                 removed += 1
@@ -323,6 +328,7 @@ class DownloadManager(QObject):
         info = self._tasks[task_id]
         cancel = self._cancel_flags[task_id]
         cookies = self._cookies.get(task_id, "")
+        opts = self._opts.get(task_id) or {}
         plan = self._plans.get(task_id) or [(info.url, "", [])]
         t0 = time.time()
         log.info("开始下载 %s | %s | 画质=%s | 候选=%d",
@@ -334,6 +340,16 @@ class DownloadManager(QObject):
                 self._active -= 1
                 self._cancel_flags.pop(task_id, None)
                 # 重试禁漫任务仍需原来的 Cookie；移除任务记录时再释放。
+            log.info("下载结束 %s 状态=%s 用时%.1fs", task_id, info.status,
+                     time.time() - t0)
+            self.task_finished.emit(info)
+            self._pump()
+            return
+        if (info.url or "").startswith("ehentai://"):
+            self._run_ehentai(info, cancel, cookies)
+            with self._lock:
+                self._active -= 1
+                self._cancel_flags.pop(task_id, None)
             log.info("下载结束 %s 状态=%s 用时%.1fs", task_id, info.status,
                      time.time() - t0)
             self.task_finished.emit(info)
@@ -892,6 +908,44 @@ class DownloadManager(QObject):
             raise IncompleteDownload("服务端未返回任何数据（且未声明长度），已放弃")
         return downloaded
 
+
+    def _run_ehentai(self, info, cancel, cookies: str):
+        """E-Hentai 画廊逐张下载（每张要先取图片页拿 H@H 直链，还要会换节点）。"""
+        from .ehentai_bridge import (DownloadCancelled, cleanup_parts,
+                                    download_ehentai)
+        info.status = "下载中"
+        self.task_progress.emit(info)
+
+        def on_progress(done: int, total: int):
+            # 进度按「张数」算，体积对不上（未登录拿的是 1280 宽压缩版），
+            # 所以这里用张数折一个虚拟总量，让进度条动起来
+            info.downloaded = max(0, int(done))
+            info.total = max(int(total), info.downloaded)
+            info.status = "下载中"
+            self.task_progress.emit(info)
+
+        try:
+            download_ehentai(info.url, info.save_path, cookies,
+                             cancel=cancel, progress_cb=on_progress,
+                             on_notice=self.task_notice.emit,
+                             prefer_original=bool(opts.get("prefer_original")))
+            if cancel.is_set():
+                info.status = "已取消"
+                return
+            if info.total <= 0:
+                info.total = max(info.downloaded, 1)
+            info.downloaded = info.total
+            info.status = "已完成"
+        except DownloadCancelled:
+            info.status = "已取消"
+        except Exception as e:  # noqa: BLE001
+            info.status = "失败"
+            info.error = str(e)[:200]
+        if info.status != "已完成":
+            # 画廊目录里可能躺着写了一半的 .part，留着只会让下次重下看着脏
+            cleanup_parts(info.save_path)
+        info.speed = 0
+        self.task_progress.emit(info)
 
     def _run_jmcomic(self, info, cancel, cookies: str):
         """禁漫本子走 jmcomic 解码下载（原图切片混淆，不能当普通直链）。"""

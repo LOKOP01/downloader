@@ -119,6 +119,16 @@ def login_jmcomic(profile_dir: str, timeout: int = 300) -> Tuple[bool, str]:
                       ("AVS",), timeout)
 
 
+def login_ehentai(profile_dir: str, timeout: int = 300) -> Tuple[bool, str]:
+    """打开有头 Edge 供用户登录 E-Hentai，登录态写入 profile_dir。
+
+    判据只认 `ipb_member_id`：`igneous` 游客访问也会种下，拿它当「已登录」
+    会让窗口刚打开就报成功。登录后才能取原图（未登录只有 1280 宽压缩版）。
+    """
+    return login_site(profile_dir, "https://e-hentai.org/",
+                      ("ipb_member_id",), timeout)
+
+
 def dump_cookies(profile_dir: str, domain_key: str) -> str:
     """从持久化 profile 中导出指定域名的 Cookie 字符串（供 requests 复用登录态）"""
     try:

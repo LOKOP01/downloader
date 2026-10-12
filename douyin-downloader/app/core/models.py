@@ -51,6 +51,8 @@ class VideoInfo:
         src = (self.source or "").lower()
         if src in ("jmcomic", "jm", "18comic"):
             return "禁漫本子"
+        if src in ("ehentai", "eh"):
+            return "E-Hentai 画廊"
         return "图集" if self.is_image else "视频"
 
     def safe_title(self, max_len: int = 60) -> str:

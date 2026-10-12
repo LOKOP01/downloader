@@ -82,6 +82,7 @@ class TaskInterface(ScrollArea):
         m.task_added.connect(self._on_task_added)
         m.task_progress.connect(self._on_task_update)
         m.task_finished.connect(self._on_task_update)
+        m.task_notice.connect(self._on_task_notice)
         self._init_style()
 
     def showEvent(self, event):
@@ -469,6 +470,12 @@ class TaskInterface(ScrollArea):
         else:
             log.info("文件已不存在，仅清除记录 %s", task_id)
             self._toast("已清除记录", "文件不存在，仅清除了任务记录", "warning")
+
+    def _on_task_notice(self, text: str):
+        """下载途中的提示（如 E-Hentai 登录态失效自动降级）"""
+        if text:
+            log.warning("下载提示：%s", text)
+            self._toast("提示", text, "warning")
 
     def _toast(self, title: str, content: str, kind: str):
         fn = {"success": InfoBar.success, "error": InfoBar.error,

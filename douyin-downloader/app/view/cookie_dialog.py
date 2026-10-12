@@ -111,3 +111,9 @@ XHS_FIELDS = [
 JM_FIELDS = [
     ("AVS", "禁漫登录后的 AVS（最重要，大部分本子免登录）", True),
 ]
+
+EH_FIELDS = [
+    ("ipb_member_id", "E-Hentai 登录后的 ipb_member_id（最重要）", True),
+    ("ipb_pass_hash", "E-Hentai 登录后的 ipb_pass_hash（登录态核心）", True),
+    ("igneous", "igneous（选填，访问 EX 站时需要）", False),
+]

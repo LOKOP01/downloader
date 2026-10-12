@@ -53,6 +53,7 @@ class HomeInterface(ScrollArea):
         self._init_style()
 
         self.ctx.manager.task_finished.connect(self._on_task_finished)
+        self.ctx.manager.task_notice.connect(self._on_task_notice)
 
     # ------------------------------------------------------------------ #
     def _init_style(self):
@@ -68,7 +69,7 @@ class HomeInterface(ScrollArea):
         header = D.PageHeader(
             "视频解析",
             "抖音 / X / Instagram / B站 / 小红书 / Iwara / Pornhub / hanime1 / "
-            "禁漫　·　视频与图集　·　画质可选",
+            "禁漫 / E-Hentai　·　视频与图集　·　画质可选",
             self.view)
         self.vBox.addWidget(header)
 
@@ -257,6 +258,18 @@ class HomeInterface(ScrollArea):
                 parts.append(f"{chapters} 章")
             if pages:
                 parts.append(f"{pages} 页")
+        elif info.source == "ehentai":
+            pages = (info.extra or {}).get("pages")
+            category = (info.extra or {}).get("category")
+            rating = (info.extra or {}).get("rating")
+            if pages:
+                parts.append(f"{pages} 张")
+            if category:
+                parts.append(category)
+            if rating:
+                parts.append(f"评分 {rating}")
+            parts.append("原图" if (info.extra or {}).get("original") == "1"
+                         else "1280 宽压缩版（可在设置里开原图）")
         else:
             parts.append(f"{len(info.image_urls)} 张图片")
         if info.music_title:
@@ -272,6 +285,10 @@ class HomeInterface(ScrollArea):
             f"点赞 {info.digg_count}　评论 {info.comment_count}　分享 {info.share_count}")
         if info.source == "jmcomic":
             self.downloadBtn.setText("下载本子")
+            self.downloadBtn.setIcon(FIF.PHOTO)
+        elif info.source == "ehentai":
+            pages = (info.extra or {}).get("pages") or "?"
+            self.downloadBtn.setText(f"下载全部 {pages} 张")
             self.downloadBtn.setIcon(FIF.PHOTO)
         else:
             self.downloadBtn.setText("下载全部图片" if info.is_image else "下载视频")
@@ -403,11 +420,18 @@ class HomeInterface(ScrollArea):
         else:
             label, url = info.quality or "视频", info.play_url
         context = SiteContext.from_config(self.ctx.config)
-        cookie = (context.cookie_for(info.source)
-                  if needs_cookie_for_source(info.source) else "")
+        # 图集类里禁漫 / E-Hentai 的预览要靠 Cookie 换原图，
+        # 但它们不在 needs_cookie_for_source 里（CDN 直链本身不需要 Cookie），
+        # 所以这里显式带上
+        cookie = ""
+        if needs_cookie_for_source(info.source) or info.source in ("jmcomic",
+                                                                    "ehentai"):
+            cookie = context.cookie_for(info.source)
         cover = self.coverLabel.pixmap() if info.source == "jmcomic" else None
-        dialog = PreviewDialog(info, url=url, label=label, cookies=cookie,
-                               cover=cover, parent=self)
+        dialog = PreviewDialog(
+            info, url=url, label=label, cookies=cookie, cover=cover,
+            prefer_original=bool(self.ctx.config.get("eh_original", False)),
+            parent=self)
         if dialog.exec():
             self._on_download()
     def _on_download(self):
@@ -429,6 +453,19 @@ class HomeInterface(ScrollArea):
                 cookies=SiteContext.from_config(cfg).cookie_for("jmcomic"))
             pages = (info.extra or {}).get("pages") or "?"
             self._toast("已加入队列", f"禁漫本子共 {pages} 页，开始下载", "success")
+            return
+        if info.source == "ehentai":
+            folder = os.path.join(base, fname)
+            self.ctx.manager.add(
+                info.play_url, folder, fname,
+                cookies=SiteContext.from_config(cfg).cookie_for("ehentai"),
+                prefer_original=bool(cfg.get("eh_original", False)))
+            pages = (info.extra or {}).get("pages") or "?"
+            original = (info.extra or {}).get("original") == "1"
+            self._toast(
+                "已加入队列",
+                f"画廊共 {pages} 张，按{'原图' if original else '1280 宽压缩版'}下载",
+                "success")
             return
         # 只有 IG / B站 的 CDN 需要登录态 Cookie。图集也要带：IG 多图的图挂在
         # cdninstagram.com 上，漏传会 403（此前只有视频分支带，图集需要登录时必挂）
@@ -523,6 +560,11 @@ class HomeInterface(ScrollArea):
                             "文件已复制，可直接 Ctrl+V 或右键粘贴", "success")
             except Exception:  # noqa: BLE001
                 pass
+
+    def _on_task_notice(self, text: str):
+        """下载途中的提示（如 E-Hentai 登录态失效自动降级）"""
+        if text:
+            self._toast("提示", text, "warning")
 
     def _toast(self, title: str, content: str, kind: str):
         fn = {"success": InfoBar.success, "error": InfoBar.error,
