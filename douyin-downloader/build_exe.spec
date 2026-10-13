@@ -89,6 +89,12 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     excludes=['numpy', 'pandas', 'matplotlib', 'cv2', 'PyQt5', 'PyQt6',
+              # tkinter 全家（含 Tcl/Tk 运行库，约 7.4MB）：本程序是 PySide6
+              # 应用，从不 import 它。但 PyInstaller 只要在打包用的 Python 里
+              # 发现 tkinter 就会自动塞进 pyi_rth__tkinter + tcl86t/tk86t.dll
+              # 和 900 多个 _tcl_data 文件 —— 换一台装了 tkinter 的 Python 打包，
+              # 产物就会白白胖 7MB。显式排除，让体积与打包环境无关。
+              'tkinter', '_tkinter', 'Tkinter',
               'PIL.HeifImagePlugin', 'PIL.AvifImagePlugin'],
     noarchive=False,
 )
@@ -97,6 +103,11 @@ def _keep_binary(item):
     src = item[1] if isinstance(item, (tuple, list)) and len(item) > 1 else str(item)
     s = str(src).replace('\\', '/').lower()
     if 'libheif' in s or 'codex-runtimes' in s or 'codex-primary-runtime' in s:
+        return False
+    # Tcl/Tk：excludes 里排了 tkinter 模块，但 collect_all(qfluentwidgets) 等
+    # 收集来的 binaries 里可能仍带着 tcl/tk 的运行库与数据文件，这里按路径再兜一层。
+    if any(k in s for k in ('tcl86t', 'tk86t', 'tcl8', 'tk8',
+                            '_tcl_data', '_tk_data', 'tcl86', 'tk86')):
         return False
     return True
 

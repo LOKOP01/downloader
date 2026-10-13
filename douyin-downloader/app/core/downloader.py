@@ -346,7 +346,7 @@ class DownloadManager(QObject):
             self._pump()
             return
         if (info.url or "").startswith("ehentai://"):
-            self._run_ehentai(info, cancel, cookies)
+            self._run_ehentai(info, cancel, cookies, opts)
             with self._lock:
                 self._active -= 1
                 self._cancel_flags.pop(task_id, None)
@@ -909,8 +909,15 @@ class DownloadManager(QObject):
         return downloaded
 
 
-    def _run_ehentai(self, info, cancel, cookies: str):
-        """E-Hentai 画廊逐张下载（每张要先取图片页拿 H@H 直链，还要会换节点）。"""
+    def _run_ehentai(self, info, cancel, cookies: str, opts: dict = None):
+        """E-Hentai 画廊逐张下载（每张要先取图片页拿 H@H 直链，还要会换节点）。
+
+        `opts` 由 `_run()` 传入（与 cookies 一样是「本任务自己的参数」）。
+        这里**必须走参数**：`_run()` 里的局部变量 `opts` 对本方法不可见，
+        写成闭包外的名字会 NameError，而异常又被下面的 except 吞成「失败」，
+        表现为「E-Hentai 一入队就失败、错误是 name 'opts' is not defined」。
+        """
+        opts = opts or {}
         from .ehentai_bridge import (DownloadCancelled, cleanup_parts,
                                     download_ehentai)
         info.status = "下载中"

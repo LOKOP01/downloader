@@ -333,7 +333,10 @@ class TaskInterface(ScrollArea):
                 continue
             size_item = self.table.item(row, COL_SIZE)
             if size_item:
-                if (info.url or "").startswith("jmcomic://"):
+                # 逐张下载的站点（禁漫 / E-Hentai）把「张数」写进 downloaded/total
+                # （见 downloader._run_jmcomic / _run_ehentai 的 on_progress），
+                # 那是张数不是字节 —— 用 fmt_size 格式化会显示成「91 B」。
+                if (info.url or "").startswith(("jmcomic://", "ehentai://")):
                     txt = f"{info.downloaded}/{info.total} 张" if info.total else "--"
                 elif info.total:
                     txt = fmt_size(info.total)

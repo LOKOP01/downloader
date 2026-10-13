@@ -1,4 +1,4 @@
-﻿# Rebuild the Windows setup.exe with Inno Setup.
+# Rebuild the Windows setup.exe with Inno Setup.
 # Requires: dist\ exe already built by PyInstaller.
 $ErrorActionPreference = 'Stop'
 
@@ -6,7 +6,10 @@ $here = $PSScriptRoot
 $root = Split-Path -Parent $here
 $dist = Join-Path $root 'dist'
 $iss = Join-Path $here 'setup.iss'
-$raw = Get-Content -LiteralPath $iss -Raw
+# 必须显式指定 -Encoding UTF8：setup.iss 本身**没有 BOM**，PowerShell 5.1
+# 默认按系统 ANSI 码页读，中文 exe 名（"视频下载器.exe"）会变成乱码，
+# 拼出的路径 Test-Path 必然失败（v1.8.10.29 打包时踩过）。
+$raw = Get-Content -LiteralPath $iss -Raw -Encoding UTF8
 
 # 版本号与 exe 名都从 setup.iss 里取（setup.iss 是唯一来源）。
 # 不在本脚本里硬编码中文文件名：PowerShell 5.1 会按系统 ANSI 码页读取
