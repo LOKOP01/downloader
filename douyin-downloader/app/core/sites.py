@@ -1341,6 +1341,17 @@ def _instagram_browser(shortcode: str, cookie: str,
             page = context.new_page()
             page.goto(f"https://www.instagram.com/p/{shortcode}/",
                       wait_until="domcontentloaded", timeout=45000)
+            # 账号被 IG 限流 / 要求安全验证时，**所有**页面都会被 302 到
+            # /accounts/suspended/（连公开帖也一样）。此时页面里没有任何帖子
+            # 数据，若只报「页面未能加载内容，请重新登录」会把人带偏 ——
+            # 登录态其实是好的，重新登录也没用（2026-10-14 实测：用户 sessionid
+            # 长度 78 有效，但全站被跳 suspended，页面要求输入短信验证码）。
+            if "accounts/suspended" in (page.url or ""):
+                raise ParseError(
+                    "Instagram 要求先完成安全验证：账号被临时限制，所有页面都会跳到"
+                    "「账号已暂停」页（页面会提示输入短信验证码）。"
+                    "请用浏览器登录 instagram.com 按提示完成验证，之后即可正常解析。"
+                    "（这不是登录失效，重新登录无效）")
             # ① 首选：/api/v1/media/{media_id}/info/（数据最全且有校验字段）
             #    media_id 可由 shortcode 本地解码（IG 的 shortcode 就是
             #    media_id 的 base64url 变体），所以**不必**等页面 JS 把数据

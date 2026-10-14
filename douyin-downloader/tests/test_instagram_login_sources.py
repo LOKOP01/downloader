@@ -155,5 +155,38 @@ class LoginCriteriaTest(unittest.TestCase):
                       "_has_cookie 若是 all() 语义，判据的含义会变，需同步改文档")
 
 
+class AccountRestrictedHintTest(unittest.TestCase):
+    """账号被 IG 限流时要说清原因，不能误导用户去重新登录。
+
+    2026-10-14 实测：用户完成登录（sessionid 长度 78 有效）后，IG 因安全策略
+    把所有页面 302 到 /accounts/suspended/（页面要求输入短信验证码），
+    连公开帖也一样。此时登录态没问题、重新登录也没用，但旧提示是
+    「页面未能加载内容…请重新登录」，把人带偏。
+    """
+
+    def test_suspended_redirect_is_detected(self):
+        fn = _func("_instagram_browser")
+        # 函数里必须出现 "accounts/suspended" 这个判据字符串
+        has_const = any(isinstance(c, ast.Constant)
+                        and isinstance(c.value, str)
+                        and "accounts/suspended" in c.value
+                        for c in ast.walk(fn))
+        self.assertTrue(has_const,
+                        "_instagram_browser 里应检测 page.url 是否含 accounts/suspended")
+
+    def test_hint_says_relogin_is_useless(self):
+        """提示必须点明「不是登录失效、重新登录无效」，否则用户会白折腾"""
+        with open(_SITES, encoding="utf-8") as fh:
+            src = fh.read()
+        seg = src[src.index("accounts/suspended"):]
+        seg = seg[:seg.index("raise ParseError")]
+        end = src.index("raise ParseError", src.index("accounts/suspended"))
+        msg = src[end:end + 400]
+        self.assertIn("不是登录失效", msg,
+                      "提示里要写明这不是登录失效")
+        self.assertIn("短信验证码", msg,
+                      "提示里要点出页面会要求输入短信验证码")
+
+
 if __name__ == "__main__":
     unittest.main()
