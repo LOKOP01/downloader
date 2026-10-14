@@ -107,8 +107,8 @@ begin
   begin
     if UninstallSilent then
       Exit;
-    if MsgBox('是否同时删除登录态和配置文件？' + #13#10 +
-              '选择「是」将清除各平台登录信息和下载设置。',
+    if MsgBox('是否同时删除登录态、配置和漫画书架记录？' + #13#10 +
+              '选择「是」将清除登录信息、下载设置与漫画阅读进度。原漫画图片保留。',
               mbConfirmation, MB_YESNO) = IDYES then
     begin
       // 逐个列出而不通配：DelTree 不认通配符，且这里要删的正是登录态，
@@ -123,6 +123,9 @@ begin
       DelTree(ExpandConstant('{app}\edge_profile_jm'), True, True, True);
       DelTree(ExpandConstant('{app}\edge_profile_eh'), True, True, True);
       DeleteFile(ExpandConstant('{app}\config.json'));
+      DeleteFile(ExpandConstant('{app}\manga_library.json'));
+      DeleteFile(ExpandConstant('{app}\manga_library.json.bak'));
+      DeleteFile(ExpandConstant('{app}\manga_library.json.corrupt'));
     end;
   end;
 end;
