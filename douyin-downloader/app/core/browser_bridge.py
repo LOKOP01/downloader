@@ -82,9 +82,20 @@ def login(profile_dir: str, timeout: int = 240) -> Tuple[bool, str]:
 
 
 def login_instagram(profile_dir: str, timeout: int = 300) -> Tuple[bool, str]:
-    """打开有头 Edge 供用户登录 Instagram，登录态写入 profile_dir。"""
+    """打开有头 Edge 供用户登录 Instagram，登录态写入 profile_dir。
+
+    ⚠️ 判据**只能认 sessionid**，不能把 `ds_user_id` 也算进去：
+    `ds_user_id`（纯数字 uid）在登录**过期后仍留在 profile 里**，而
+    `_has_cookie` 是 any() 语义 —— 只要它在，`login_site` 打开窗口的
+    第一轮循环就判成「登录成功」并立刻 context.close()，
+    用户看到的是「登录窗口跳一下就消失、根本没法登录」
+    （2026-10-14 用户实测反馈，已复现：窗口存活 1ms）。
+
+    真正的登录凭证是 sessionid（含会话密钥），它随登出/过期被服务端清除，
+    所以它才是可靠的「已登录」信号。
+    """
     return login_site(profile_dir, "https://www.instagram.com/accounts/login/",
-                      ("sessionid", "ds_user_id"), timeout)
+                      ("sessionid",), timeout)
 
 
 def login_x(profile_dir: str, timeout: int = 300) -> Tuple[bool, str]:

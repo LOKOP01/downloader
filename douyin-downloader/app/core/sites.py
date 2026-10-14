@@ -1161,13 +1161,16 @@ def parse_instagram(url: str, cookie: str = "",
     if not m:
         raise ParseError("无法从链接中识别 Instagram 帖子 ID")
     shortcode = m.group(1)
+    # `/reel(s)/` 是视频帖的专用路径；`/p/` 才是「图或视频都可能有」。
+    # 这个区别在下面两条兜底链路上都要用：reel 永远不该被当成图集。
+    is_reel = bool(re.search(r'/reels?/', url))
 
     # 1) HTTP 直连：后台线程跑（公开帖子的 og 标签/内嵌 JSON 仍可取到）
     got = {}
 
     def _http_try():
         try:
-            got["info"] = _instagram_http(shortcode, cookie)
+            got["info"] = _instagram_http(shortcode, cookie, is_reel)
         except Exception:  # noqa: BLE001
             pass
 
@@ -1176,7 +1179,8 @@ def parse_instagram(url: str, cookie: str = "",
 
     # 2) 浏览器渲染（主力链路：登录态 / 受限内容只能靠它）
     try:
-        return _instagram_browser(shortcode, cookie, profile_dir or None)
+        return _instagram_browser(shortcode, cookie, profile_dir or None,
+                                  is_reel)
     except ParseError:
         probe.join(timeout=3)
         if got.get("info"):
@@ -1184,7 +1188,8 @@ def parse_instagram(url: str, cookie: str = "",
         raise
 
 
-def _instagram_http(shortcode: str, cookie: str = "") -> VideoInfo:
+def _instagram_http(shortcode: str, cookie: str = "",
+                    is_reel: bool = False) -> VideoInfo:
     # Cookie 先统一清洗（非 Latin-1 字符 percent-encode），再拆键值对，
     # 保证 Cookie header 与 x-csrftoken 用的是同一份值（见 models.clean_cookie）
     cookie = clean_cookie(cookie)
@@ -1266,6 +1271,12 @@ def _instagram_http(shortcode: str, cookie: str = "") -> VideoInfo:
 
     disp = re.findall(r'"display_url"\s*:\s*"([^"]+)"', html)
     if disp:
+        # `/reel/` 链接按定义就是视频：HTML 里的 display_url 是它的封面帧，
+        # 不能因为「没解析出 video_versions」就把它当图集（页面是 JS 壳时
+        # display_url 常在、video_versions 却还没渲染出来）。宁可返回失败，
+        # 让上层走浏览器链路，也不要给出「reel = 一张图」这种错结论。
+        if is_reel:
+            raise ParseError("HTTP 直连只拿到 reel 的封面帧，未取到视频地址")
         info.image_urls = [d.replace("\\u0026", "&").replace("&amp;", "&")
                            for d in disp]
         info.is_image = True
@@ -1277,7 +1288,7 @@ def _instagram_http(shortcode: str, cookie: str = "") -> VideoInfo:
 
 
 def _instagram_browser(shortcode: str, cookie: str,
-                       profile_dir) -> VideoInfo:
+                       profile_dir, is_reel: bool = False) -> VideoInfo:
     """用浏览器渲染 Instagram 页面（现代 IG 是 JS 壳，requests 拿不到数据）
 
     有 profile_dir 时用持久化上下文（复用网页登录态），否则注入 cookie。
@@ -1394,6 +1405,21 @@ def _instagram_browser(shortcode: str, cookie: str,
         info.quality_sizes = node.get("quality_sizes") or {}
         info.quality = quality_options[0][0]
         return info
+
+    # 到这里说明没拿到视频直链。必须先分清两种情况，否则会把
+    # 「登录墙下的残缺页」当成正常图集（用户看到的就是「reel 解析成图片、
+    # 点赞 0」——2026-10-14 实测：年龄限制帖只回登录墙，页面里没有
+    # video_versions，最后被 og:image 兜底成一张图）。
+    #   · node 有数据（含 cover/image_urls）→ 真的是图集，正常返回
+    #   · node 为空、只有 og:image       → 连帖子数据都没取到，是登录态/
+    #     权限问题，硬报图集只会误导；这里直接说清原因
+    if not node:
+        raise ParseError(
+            "Instagram 只返回了封面，没取到"
+            + ("视频" if is_reel else "帖子")
+            + "数据 —— 本条多为年龄限制 / 受限内容，需要登录态。"
+              "请在「设置 → 账号与登录 → Instagram」填写 Cookie 或重新登录后重试")
+
     # 图集：用接口给出的多图候选（精确对应本条）。
     # 单图帖子接口只在 cover 里给一张，用它兜底；og:image 再兜底。
     single = node.get("cover") or cover
