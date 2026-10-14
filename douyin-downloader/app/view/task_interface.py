@@ -20,19 +20,26 @@ from . import design as D
 from .perf import ProgressThrottle
 from ..core.applog import get_logger
 
-COL_NAME, COL_SIZE, COL_PROGRESS, COL_SPEED, COL_QUALITY, COL_STATUS, COL_ACTION = range(7)
+# ⚠️ 「操作」列必须放在**最左边**，不能放最右。
+# 原因（2026-10-14 用户报「看不见取消按键」）：固定列宽合计 1150px，而主窗口
+# 默认只有 1100px（main_window.py 的 `self.resize(1100, 720)`）—— 放最右时
+# 「操作」列被推到视口外（实测取消按钮右边界 1038px、视口仅 983px），
+# **默认就看不见，要手动拖宽窗口或拉横向滚动条才出来**。
+# 移到最左后，无论窗口多窄、横向怎么滚动，取消/重试/打开/删除始终可见。
+COL_ACTION, COL_NAME, COL_SIZE, COL_PROGRESS, COL_SPEED, COL_QUALITY, \
+    COL_STATUS = range(7)
 
 # 各列固定宽度（px）。**必须固定，不能用 ResizeToContents**：
 # 文件名列是 Stretch，右侧任何一列随文本变宽变窄，都会把 Stretch 列挤窄，
 # 导致进度条在整个下载过程中水平位置持续漂移（用户 2026-10-04 反馈）。
 # 尺寸按各列最长可能文本实测（见 _scratch_x_probe），只给文件名列留弹性。
 _COL_WIDTHS = {
+    COL_ACTION: 150,     # 取消 / 重试 / 打开 / 删除（固定在最左，永远可见）
     COL_SIZE: 100,       # -- / 3.5 MB / 128.9 MB / 2.4 GB
     COL_PROGRESS: 170,   # 进度条（160）+ 左右留白
     COL_SPEED: 120,      # -- / 12.3 MB/s
     COL_QUALITY: 360,    # 2160×3840 · 21000kbps · 27fps（实测 348px + 内边距）
     COL_STATUS: 150,     # 等待中 / 下载中 / 合并中 / 已完成 / 失败：…
-    COL_ACTION: 150,     # 4 个操作按钮
 }
 
 # 日志面板：轮询间隔 / 面板保留行数 / 打开页面时先回看多少行
@@ -119,8 +126,9 @@ class TaskInterface(ScrollArea):
 
         self.table = TableWidget(card)
         self.table.setColumnCount(7)
+        # 表头顺序必须与上面的列常量顺序一致（操作在最左）
         self.table.setHorizontalHeaderLabels(
-            ["文件名", "大小", "进度", "速度", "画质", "状态", "操作"])
+            ["操作", "文件名", "大小", "进度", "速度", "画质", "状态"])
         self.table.verticalHeader().hide()
         self.table.setBorderVisible(True)
         self.table.setBorderRadius(8)
@@ -128,14 +136,21 @@ class TaskInterface(ScrollArea):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         header = self.table.horizontalHeader()
         # 只让文件名列吸收剩余宽度；其余列全部固定，避免下载中文本变化
-        # 引起列宽抖动、把进度条挤得左右乱跑（见 _COL_WIDTHS 说明）
+        # 引起列宽抖动、把进度条挤得左右乱跑（见 _COL_WIDTHS 说明）。
+        # 操作列也必须固定：它靠左，固定宽度才能保证按钮不会被压扁。
         header.setSectionResizeMode(COL_NAME, QHeaderView.Stretch)
-        for c in (COL_SIZE, COL_PROGRESS, COL_SPEED, COL_QUALITY,
-                  COL_STATUS, COL_ACTION):
+        for c in (COL_ACTION, COL_SIZE, COL_PROGRESS, COL_SPEED, COL_QUALITY,
+                  COL_STATUS):
             header.setSectionResizeMode(c, QHeaderView.Fixed)
             self.table.setColumnWidth(c, _COL_WIDTHS[c])
         self.table.setMinimumHeight(360)
         self.table.setMinimumWidth(0)
+        # 横向滚动条**始终显示**：固定列合计 1050px，比默认窗口下的表格视口
+        # （约 1000px）宽，最右的「状态」列会被挤出可视区。让它常驻，用户
+        # 一眼就知道右边还有内容可滚 —— 否则会以为「列没了」（2026-10-14
+        # 用户报「看不见取消按键」时，就是因为没有这个提示而不知道要横向滚）。
+        # 核心操作（操作列）已固定在最左，不受影响。
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         lay.addWidget(self.table)
 
         self.emptyLabel = D.hint_label(
