@@ -4,6 +4,8 @@ PySide6>=6.7.0
 PySide6-Fluent-Widgets>=1.5.0
 PySideSix-Frameless-Window>=0.4.0
 requests>=2.31.0
+# 本地WebP动画解码与透明背景合成；复用现有ffmpeg，不引入imageio或HTTP服务
+Pillow>=10.0,<13
 playwright>=1.40.0
 # hanime1 与小红书签名直连都用 curl_cffi（Chrome 指纹伪装 TLS/HTTP2）
 curl_cffi>=0.15.0

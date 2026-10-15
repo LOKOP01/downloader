@@ -298,7 +298,7 @@ class MangaReaderTest(unittest.TestCase):
         self.windows.append(window)
         window.show()
         self.app.processEvents()
-        self.assertEqual(window.tabBar.count(), 5)
+        self.assertEqual(window.tabBar.count(), 6)
         task = DownloadTaskInfo(task_id="manga-test", url="jmcomic://album/123", save_path=str(self.folder))
         task.status = "已完成"
         window.ctx.manager._tasks[task.task_id] = task
