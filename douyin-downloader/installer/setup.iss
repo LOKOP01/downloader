@@ -6,9 +6,13 @@
 #define MyAppVersion "1.8.10.34"
 #define MyAppPublisher "个人项目"
 #define MyAppExeName "视频下载器.exe"
+; 测试安装可用编译参数指定独立AppId，避免碰用户现有安装/卸载注册信息。
+#ifndef MyAppId
+  #define MyAppId "{{8F3C2A91-6D4E-4B7A-9C1E-2F5D8A0B4E73}"
+#endif
 
 [Setup]
-AppId={{8F3C2A91-6D4E-4B7A-9C1E-2F5D8A0B4E73}
+AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
