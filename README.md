@@ -35,6 +35,7 @@
 │   │   │   ├── domain.py       # 各站点域名集合与 Referer 规则
 │   │   │   ├── site_ctx.py     # 站点上下文（Cookie / profile 目录 / 选项）
 │   │   │   ├── models.py       # 数据模型（VideoInfo 等）
+│   │   │   ├── manga.py        # 本地漫画书架、自然排序、阅读进度与书架迁移
 │   │   │   ├── config.py       # 配置读写（DEFAULT_CONFIG 是默认值唯一来源）
 │   │   │   ├── workers.py      # 后台线程（登录、预览、封面）
 │   │   │   ├── proxy.py        # 系统代理读取 + 端口漂移时自动回退
@@ -105,6 +106,29 @@ pyinstaller build_exe.spec
 3. 需要登录的站点（X / Instagram / 小红书 / 禁漫 / E-Hentai）在设置页填 Cookie，或用内置的浏览器登录流程导出。
 4. B 站 DASH 合并需要 ffmpeg，在「设置 → 合并组件（ffmpeg）」里下载，不是 pip 依赖。
 5. 解析失败或下载卡住，看 `logs/app.log`。
+
+### 漫画阅读器（Windows）
+
+顶部「漫画阅读器」提供本地漫画书架，不需要另外安装阅读器或 .NET 运行环境。
+
+- **添加漫画**：选择一本漫画的文件夹，每张 `.jpg` / `.jpeg` 是一页（支持大写扩展名与章节子目录）。
+- **导入漫画库**：选择总目录，每个子文件夹作为一本漫画。可将一本或多本的文件夹直接拖进书架。
+- 页面按相对路径自然排序，例如 `第2章/2.jpg` 在 `第2章/10.jpg`、`第10章/1.jpg` 之前。
+- 点击封面继续阅读；支持搜索、最近阅读、收藏、按名称或进度排序，右键可移除记录，原图片保留。
+- 下载任务里的 JPG 图集、禁漫及 E-Hentai 任务提供「阅读漫画」按钮，完成后可直接加入书架并打开。
+- 「更多 → 导入独立页间阅读器书架」可选择 `%LOCALAPPDATA%\FolderMangaReader\library.json`，导入此前独立版的收藏与进度；已有记录不会被覆盖。
+- 新增或移除图片后可刷新书架；每次打开漫画也会重新扫描。
+
+阅读快捷键：左右键、PageUp / PageDown 翻页；Home / End 跳到首尾；空格向下滚一屏，到底后翻页；Ctrl + 滚轮、`+` / `-` 缩放，`0` 恢复适配。F11 或双击全屏，Tab 隐藏工具栏，Esc 退出全屏或返回书架。「适合宽度」用于长图，「从右到左」交换左右键和图片两侧的翻页方向。
+
+书架、进度与阅读偏好保存在程序目录的 `manga_library.json`，使用原子替换并保留上一份有效备份 `manga_library.json.bak`。损坏记录会尝试备份恢复，原漫画图片不会被修改。书架包含个人本地路径，已加入 `.gitignore`。移动漫画文件夹后请重新添加新路径，再移除旧记录。
+
+漫画功能复用 PySide6 与项目现有 UI 组件，无新增运行依赖。相关测试：
+
+```bash
+cd douyin-downloader
+python -m unittest discover -s tests -p "test_manga*.py" -v
+```
 
 ### 配置文件 `config.json`
 

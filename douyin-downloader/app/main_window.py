@@ -12,6 +12,7 @@ from .core.downloader import DownloadManager
 from .view import design as D
 from .view.batch_interface import BatchInterface
 from .view.home_interface import HomeInterface
+from .view.manga_interface import MangaInterface
 from .view.perf import tune_scroll_areas
 from .view.setting_interface import SettingInterface
 from .view.tab_bar import AppTabBar
@@ -58,7 +59,9 @@ class MainWindow(FluentWindow):
         self.homeInterface = HomeInterface(self.ctx, self)
         self.batchInterface = BatchInterface(self.ctx, self)
         self.taskInterface = TaskInterface(self.ctx, self)
+        self.mangaInterface = MangaInterface(self.ctx, self)
         self.settingInterface = SettingInterface(self.ctx, self)
+        self.taskInterface.read_manga.connect(self._read_manga)
 
         self.initNavigation()
         self.initWindow()
@@ -68,12 +71,13 @@ class MainWindow(FluentWindow):
         self.switchTo(self.homeInterface)
 
     def initNavigation(self):
-        # 先把 4 个页面注册进 stackedWidget。addSubInterface 会顺带挂进左侧
+        # 先把各页面注册进 stackedWidget。addSubInterface 会顺带挂进左侧
         # NavigationInterface —— 那是下一步就要退场的旧壳层，保留对象不销毁，
         # 免得 _onCurrentInterfaceChanged / qrouter 的既有链路断掉。
         self.addSubInterface(self.homeInterface, FIF.VIDEO, "视频解析")
         self.addSubInterface(self.batchInterface, FIF.PEOPLE, "批量下载")
         self.addSubInterface(self.taskInterface, FIF.DOWNLOAD, "下载任务")
+        self.addSubInterface(self.mangaInterface, FIF.PHOTO, "漫画阅读器")
         self.addSubInterface(self.settingInterface, FIF.SETTING, "设置")
 
         self.navigationInterface.setAcrylicEnabled(False)
@@ -84,10 +88,10 @@ class MainWindow(FluentWindow):
         self.hBoxLayout.removeWidget(self.navigationInterface)
 
         self._pages = [self.homeInterface, self.batchInterface,
-                       self.taskInterface, self.settingInterface]
+                       self.taskInterface, self.mangaInterface, self.settingInterface]
         self.tabBar = AppTabBar(
             [("home", "视频解析"), ("batch", "批量下载"),
-             ("task", "下载任务"), ("setting", "设置")],
+             ("task", "下载任务"), ("manga", "漫画阅读器"), ("setting", "设置")],
             app_name="视频下载器", parent=self)
 
         # widgetLayout 原本是 [stackedWidget] 的横向布局，改成纵向叠一层标签栏。
@@ -106,6 +110,15 @@ class MainWindow(FluentWindow):
         self.stackedWidget.currentChanged.connect(self._sync_tab)
 
     # ------------------------------------------------------------------ #
+    def _read_manga(self, folder):
+        self.switchTo(self.mangaInterface)
+        self.mangaInterface.open_folder(folder)
+
+    def closeEvent(self, event):
+        super().closeEvent(event)
+        if event.isAccepted():
+            self.mangaInterface.shutdown()
+
     def _on_tab_changed(self, index: int):
         if 0 <= index < len(self._pages):
             self.switchTo(self._pages[index])
@@ -162,7 +175,7 @@ class MainWindow(FluentWindow):
         # 卡片不用单独改：它是 rgba 白叠加在页面底上的，页面底一对，
         # 卡片自然落到目标深度（#09090B 上叠 5% 白 ≈ #151515，接近 #18181B）。
         for itf in (self.homeInterface, self.batchInterface,
-                    self.taskInterface, self.settingInterface):
+                    self.taskInterface, self.mangaInterface, self.settingInterface):
             name = itf.objectName()
             D.theme_qss(itf,
                         f"#{name}{{background:{D.BG_PRIMARY[0]};}}",

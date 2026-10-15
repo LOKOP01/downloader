@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 
-from PySide6.QtCore import QTimer, QUrl, Qt
+from PySide6.QtCore import QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import (QColor, QDesktopServices, QFont, QTextCharFormat,
                            QTextCursor)
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout,
@@ -32,7 +32,7 @@ _COL_WIDTHS = {
     COL_SPEED: 120,      # -- / 12.3 MB/s
     COL_QUALITY: 360,    # 2160×3840 · 21000kbps · 27fps（实测 348px + 内边距）
     COL_STATUS: 150,     # 等待中 / 下载中 / 合并中 / 已完成 / 失败：…
-    COL_ACTION: 150,     # 4 个操作按钮
+    COL_ACTION: 180,     # 操作按钮，图集任务额外提供漫画阅读入口
 }
 
 # 日志面板：轮询间隔 / 面板保留行数 / 打开页面时先回看多少行
@@ -49,6 +49,8 @@ log = get_logger("task")
 
 
 class TaskInterface(ScrollArea):
+    read_manga = Signal(str)
+
     def __init__(self, ctx, parent=None):
         super().__init__(parent)
         self.ctx = ctx
@@ -295,6 +297,12 @@ class TaskInterface(ScrollArea):
         h.addWidget(cancelBtn)
         h.addWidget(retryBtn)
         h.addWidget(openBtn)
+        from ..core.manga import is_page
+        if (info.url or "").startswith(("jmcomic://", "ehentai://")) or is_page(info.save_path):
+            readBtn = TransparentToolButton(FIF.PHOTO, actions)
+            readBtn.setToolTip("阅读漫画（下载完成后可用）")
+            readBtn.clicked.connect(lambda _, tid=info.task_id: self._read_manga_task(tid))
+            h.addWidget(readBtn)
         h.addWidget(delBtn)
         self.table.setCellWidget(row, COL_ACTION, actions)
         self._refresh_summary()
@@ -390,6 +398,19 @@ class TaskInterface(ScrollArea):
         path = self.ctx.config.get("download_path")
         os.makedirs(path, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def _read_manga_task(self, task_id):
+        info = next((task for task in self.ctx.manager.all_tasks() if task.task_id == task_id), None)
+        if info is None or info.status != "已完成":
+            self._toast("尚未下载完成", "请等待漫画 / 图集下载完成后再阅读", "warning")
+            return
+        path = info.save_path
+        if not path:
+            self._toast("没有保存路径", "这个任务没有可阅读的本地文件夹", "warning")
+            return
+        is_album = (info.url or "").startswith(("jmcomic://", "ehentai://"))
+        folder = path if is_album or os.path.isdir(path) else os.path.dirname(path)
+        self.read_manga.emit(folder)
 
     def _open_file_location(self, path: str):
         if path and os.path.isdir(path):
