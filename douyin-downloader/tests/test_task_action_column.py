@@ -70,7 +70,9 @@ class ActionColumnLayoutTest(unittest.TestCase):
         class Ctx:
             pass
 
-        tmp = tempfile.mkdtemp(prefix="colfix_")
+        temp = tempfile.TemporaryDirectory(prefix="colfix_")
+        self.addCleanup(temp.cleanup)
+        tmp = temp.name
         ctx = Ctx()
         ctx.config = Config(os.path.join(tmp, "config.json"))
         ctx.config.set("download_path", tmp)
@@ -105,7 +107,9 @@ class ActionColumnGeometryTest(unittest.TestCase):
         class Ctx:
             pass
 
-        tmp = tempfile.mkdtemp(prefix="colreg_")
+        temp = tempfile.TemporaryDirectory(prefix="colreg_")
+        self.addCleanup(temp.cleanup)
+        tmp = temp.name
         ctx = Ctx()
         ctx.config = Config(os.path.join(tmp, "config.json"))
         ctx.config.set("download_path", tmp)

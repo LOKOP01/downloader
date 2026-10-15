@@ -62,6 +62,9 @@ config.local.json
 # 运行时配置：源码运行时 config.json 就写在项目根目录，里面明文存 Cookie。
 # 忽略掉，避免登录一次之后整份凭据被误提交（默认值在 core/config.py 里）。
 douyin-downloader/config.json
+# 本地漫画路径、阅读进度与收藏，不提交个人书架。
+manga_library.json*
+.manga-*.tmp
 
 # ---------- AI 工具目录 ----------
 .workbuddy/
@@ -117,3 +120,7 @@ Desktop.ini
 
 # 本机安装目录（卸载器及运行文件，不属于源码）
 /default/
+
+# 离屏几何回归测试临时配置
+/douyin-downloader/colfix_*/
+/douyin-downloader/colreg_*/

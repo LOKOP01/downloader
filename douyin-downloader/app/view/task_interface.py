@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 
-from PySide6.QtCore import QTimer, QUrl, Qt
+from PySide6.QtCore import QTimer, QUrl, Qt, Signal
 from PySide6.QtGui import (QColor, QDesktopServices, QFont, QTextCharFormat,
                            QTextCursor)
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHBoxLayout,
@@ -34,7 +34,7 @@ COL_ACTION, COL_NAME, COL_SIZE, COL_PROGRESS, COL_SPEED, COL_QUALITY, \
 # 导致进度条在整个下载过程中水平位置持续漂移（用户 2026-10-04 反馈）。
 # 尺寸按各列最长可能文本实测（见 _scratch_x_probe），只给文件名列留弹性。
 _COL_WIDTHS = {
-    COL_ACTION: 150,     # 取消 / 重试 / 打开 / 删除（固定在最左，永远可见）
+    COL_ACTION: 180,     # 固定在最左；图集任务额外提供阅读按钮
     COL_SIZE: 100,       # -- / 3.5 MB / 128.9 MB / 2.4 GB
     COL_PROGRESS: 170,   # 进度条（160）+ 左右留白
     COL_SPEED: 120,      # -- / 12.3 MB/s
@@ -56,6 +56,8 @@ log = get_logger("task")
 
 
 class TaskInterface(ScrollArea):
+    read_manga = Signal(str)
+
     def __init__(self, ctx, parent=None):
         super().__init__(parent)
         self.ctx = ctx
@@ -309,6 +311,11 @@ class TaskInterface(ScrollArea):
         h.addWidget(cancelBtn)
         h.addWidget(retryBtn)
         h.addWidget(openBtn)
+        if self._manga_task_folder(info):
+            readBtn = TransparentToolButton(FIF.PHOTO, actions)
+            readBtn.setToolTip("阅读漫画（下载完成后可用）")
+            readBtn.clicked.connect(lambda _, tid=info.task_id: self._read_manga_task(tid))
+            h.addWidget(readBtn)
         h.addWidget(delBtn)
         self.table.setCellWidget(row, COL_ACTION, actions)
         self._refresh_summary()
@@ -407,6 +414,44 @@ class TaskInterface(ScrollArea):
         path = self.ctx.config.get("download_path")
         os.makedirs(path, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+    def _manga_task_folder(self, info):
+        """仅图集可以整夹阅读；视频封面不能把整个下载根目录变成一本书。"""
+        from ..core.manga import folder_key, is_page
+        path = info.save_path
+        if not path:
+            return None
+        # 保留历史整本任务的路径语义，即使目录已被移走也不能退到父目录。
+        if (info.url or "").startswith(("jmcomic://", "ehentai://")):
+            return path
+        stem = os.path.splitext(os.path.basename(path))[0].casefold()
+        if not is_page(path) or info.name == "封面" or stem.endswith("_cover"):
+            return None
+        folder = os.path.dirname(os.path.abspath(path))
+        download_root = self.ctx.config.get("download_path")
+        if download_root and folder_key(folder) == folder_key(download_root):
+            return None
+        return folder
+
+    def _read_manga_task(self, task_id):
+        from ..core.manga import folder_key
+        tasks = self.ctx.manager.all_tasks()
+        info = next((task for task in tasks if task.task_id == task_id), None)
+        if info is None or info.status != "已完成":
+            self._toast("尚未下载完成", "请等待漫画 / 图集下载完成后再阅读", "warning")
+            return
+        folder = self._manga_task_folder(info)
+        if not folder:
+            self._toast("不是漫画图集", "封面或下载根目录中的单张图片不支持整夹阅读", "warning")
+            return
+        if not (info.url or "").startswith(("jmcomic://", "ehentai://")):
+            # 普通图集按图片建任务。WEBP 等同夹任务也要完成，避免页表仅为半本快照。
+            if any(task.save_path and
+                   folder_key(os.path.dirname(os.path.abspath(task.save_path))) == folder_key(folder)
+                   and task.status != "已完成" for task in tasks):
+                self._toast("图集尚未下载完成", "请等待同一图集的所有图片下载完成后再阅读", "warning")
+                return
+        self.read_manga.emit(folder)
 
     def _open_file_location(self, path: str):
         if path and os.path.isdir(path):
