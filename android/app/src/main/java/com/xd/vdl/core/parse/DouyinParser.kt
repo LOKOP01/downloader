@@ -17,8 +17,15 @@ import java.net.URLDecoder
 /**
  * 抖音解析。
  *
- * **真正有效的来源只有一个**：WebView 打开 PC 作品页、拦 `/aweme/v1/web/aweme/detail/`
- * 拿完整 bit_rate（纯 HTTP 打这个接口会被 403，见下）。
+ * **真正有效的来源只有一个**：WebView 打开 PC 作品页，拦 `/aweme/v1/web/aweme/detail/`
+ * 拿完整 bit_rate（纯 HTTP 打这个接口会被403，见下）。
+ *
+ *⚠️ **1.0.41 修的关键点**：拦截到 URL 之后**不能用 OkHttp 重放**（旧版 `loadAndCaptureJson`
+ * 就是那么做的）—— 抖音走 Argus 风控，`/aweme/v1/web/aweme/detail/` 只认 **TLS 指纹 + 浏览器
+ * 上下文**，OkHttp 重放一律 `403 Blocked by ArgusSecurityPlugin Uifid Not Found`，哪怕
+ * UA/Cookie/Referer 全对齐。**现象是清晰度只剩 1 档、没有帧率**（分享页那条路本来就只有 1 档）。
+ * 现在改成 `loadAndCaptureInPage`：注入 JS hook 住 `fetch` / `XMLHttpRequest`，
+ * **让WebView 自己发那个请求**，再把响应体读出来 —— 指纹齐全才放行。
  *
  * 纯 HTTP 那一路（分享页 → iteminfo → detail）保留作兜底，但实测已基本失效：
  *  - 分享页现在只回 `_ROUTER_DATA` 空壳（1399 字符，只有 ua/webId/renderInSSR，无任何视频地址）
@@ -30,6 +37,9 @@ import java.net.URLDecoder
 object DouyinParser : Parser {
 
     private val ID_VIDEO = Regex("/(?:video|note|slides)/(\\d+)")
+
+    /** 详情页第一页的等待上限；第二页取它的一半（见 [detailTimeouts]） */
+    private const val DETAIL_TIMEOUT_MS = 12_000L
     private val ID_ANY = Regex("(\\d{15,20})")
 
     private val RE_RENDER = Regex(
@@ -140,6 +150,17 @@ object DouyinParser : Parser {
         (if (note) listOf("note", "video") else listOf("video", "note"))
             .map { "https://www.douyin.com/$it/$id" }
 
+    /**
+     * 每个详情页的等待预算：**第一页满额，第二页减半**。
+     *
+     * 第二页只在「类型判断错了」时才有用（视频链接其实是图文，或反过来），
+     * 而 1.0.41 的真机日志显示两页**都会**跑满超时 —— 二十多秒全花在等一个
+     * 根本不会来的响应上。第一页已经证明这条路走不通，第二页就不该再平摊
+     * 同样的时间；真要是类型判错，半额也够页面把 XHR 发出来了。
+     */
+    internal fun detailTimeouts(): List<Long> =
+        listOf(DETAIL_TIMEOUT_MS, DETAIL_TIMEOUT_MS / 2)
+
     /** 视频详情通常有 bit_rate；图文详情只有 images，也属于完整作品。 */
     internal fun pickDetail(root: JSONObject, id: String): JSONObject? {
         val aweme = root.optJSONObject("aweme_detail") ?: return null
@@ -168,16 +189,20 @@ object DouyinParser : Parser {
     /** 拦截 PC 页面发出的详情请求；未发请求时读取页面内联的作品数据。 */
     private suspend fun fromWebDetail(activity: Activity, id: String, note: Boolean): VideoInfo? {
         val bridge = WebViewBridge(activity)
-        for (page in detailPages(id, note)) {
-            val item = bridge.loadAndCaptureJson(
+        val timeouts = detailTimeouts()
+        detailPages(id, note).forEachIndexed { index, page ->
+            val budget = timeouts.getOrElse(index) { timeouts.last() }
+            val item = bridge.loadAndCaptureInPage(
                 pageUrl = page,
                 ua = Http.UA_DESKTOP,
                 urlMatch = { it.contains("/aweme/v1/web/aweme/detail/") },
                 pick = { pickDetail(it, id) },
-                timeoutMs = 8000,
+                timeoutMs = budget,
                 pageStateJs = """(function() {
                     var data = document.getElementById('RENDER_DATA');
                     if (data && data.textContent) return data.textContent;
+                    var p = window.__INITIAL_STATE__ || window.__INIT_PROPS__;
+                    if (p) { try { return JSON.stringify(p); } catch(e){} }
                     return JSON.stringify(window._ROUTER_DATA || window._SSR_HYDRATED_DATA || {});
                 })()""",
                 pageStatePick = { raw ->
@@ -208,18 +233,37 @@ object DouyinParser : Parser {
             ?: throw ParseException("iteminfo 无 item_list")
     }
 
+    /**
+     * 分享页 HTML 内联 JSON（`_ROUTER_DATA`）。
+     *
+     * ⚠️ **两轮是必要的**（1.0.30 修）：抖音对「冷会话」（请求里一个 Cookie 都没有）
+     * 固定只回 **1399 字节的空壳** —— `_ROUTER_DATA` 在，但里面只有
+     * `ua / webId / itemId / renderInSSR`，**没有任何视频地址**，也不给错误码。
+     * `ttwid` 是服务端在**第一次响应**里下发的，会话内带上它之后同一页面
+     * 就正常返回（实测 8527 字节，含 `aweme_id` 与 `play_addr`）。
+     *
+     * 原先这里只打一轮就放弃，注释写「第 2 轮与第 1 轮相同」—— 那是在
+     * **每次请求都是独立冷会话**的前提下测的（`Http` 没 CookieJar），
+     * 结论对当时成立、现在不成立：`Http` 已有进程内会话 Cookie 罐，
+     * 第 1 轮拿到的 `ttwid` 会自动带到第 2 轮。
+     *
+     * 轮数不宜多：连发请求会触发 Argus 风控，整页退回 2.5KB 空壳。
+     */
     private fun fromSharePage(id: String, note: Boolean): VideoInfo? {
-        // 实测分享页现在只回 `_ROUTER_DATA` 空壳，video/note 两个路径拿到的东西一样。
-        // 不再做 repeat(2) 重试（第 2 轮内容与第 1 轮相同），只各打一次就够。
-        for (page in if (note) listOf("note", "video") else listOf("video", "note")) {
-            val html = runCatching {
-                Http.getText("https://www.iesdouyin.com/share/$page/$id/",
-                    Platform.DOUYIN, Http.UA_IPHONE)
-            }.getOrNull() ?: continue
-            val data = extractPageJson(html) ?: continue
-            findItem(data, id = id)?.let { return buildInfo(it) }
+        val pages = if (note) listOf("note", "video") else listOf("video", "note")
+        var lastLen = 0
+        for (attempt in 0 until 2) {
+            for (page in pages) {
+                val html = runCatching {
+                    Http.getText("https://www.iesdouyin.com/share/$page/$id/",
+                        Platform.DOUYIN, Http.UA_IPHONE)
+                }.getOrNull() ?: continue
+                lastLen = html.length
+                val data = extractPageJson(html) ?: continue
+                findItem(data, id = id)?.let { return buildInfo(it) }
+            }
         }
-        throw ParseException("分享页中未找到作品数据")
+        throw ParseException("分享页中未找到作品数据（页面 ${lastLen} 字符）")
     }
 
     private fun fromDetailApi(id: String): VideoInfo? {
@@ -337,6 +381,10 @@ object DouyinParser : Parser {
                     if (dsz > 0) sizes[raw] = dsz
                 }
             }
+            // 真机排查用：bit_rate 为空说明拿到的是分享页那条单档路（WebView 详情路没成），
+            // 对应桌面端「解析不出多档」的同款症状
+            AppLog.i("抖音 bit_rate=${video.optJSONArray("bit_rate")?.length() ?: 0} 条，"+
+                "回退到单档则清晰度会只剩 1 档且无帧率")
             // 只按码率排会默认下到 30fps 那条（同分辨率 60fps 的码率反而更低），
             // 所以主序分辨率、次帧率、末码率
             entries.sortWith(

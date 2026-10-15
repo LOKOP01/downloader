@@ -53,6 +53,7 @@ import com.xd.vdl.core.parse.JmClient
 import com.xd.vdl.core.parse.JmSession
 import com.xd.vdl.core.net.CookieStore
 import com.xd.vdl.core.net.Http
+import com.xd.vdl.core.net.ProxySettings
 import com.xd.vdl.ui.component.GkCard
 import com.xd.vdl.ui.component.GkDimens
 import com.xd.vdl.ui.component.GkPageTitle
@@ -65,6 +66,17 @@ import kotlinx.coroutines.withContext
 @Composable
 fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
     val ctx = LocalContext.current
+    var showBiliWebLogin by remember { mutableStateOf(false) }
+    if (showBiliWebLogin) {
+        BiliWebLoginDialog(
+            onDone = {
+                showBiliWebLogin = false
+                vm.refreshLogin()
+                vm.notify("B站登录成功，已自动保存登录态，请重新解析视频")
+            },
+            onClose = { showBiliWebLogin = false },
+        )
+    }
     // 保存/清除 Cookie 后自增，驱动下面重新读一次登录态
     val epoch by vm.loginEpoch.collectAsState()
 
@@ -89,7 +101,7 @@ fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
         GkSectionLabel("登录")
         GkCard {
             Text(
-                "从电脑浏览器取 Cookie 填入即可，Cookie 只保存在本机，" +
+                "B站可点下方网页登录，登录后自动保存；其他平台仍可填写 Cookie。凭据只保存在本机，" +
                     "下次打开无需重填。高清晰度、受限内容需要对应平台的登录态。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -109,7 +121,8 @@ fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
                     Column(Modifier.weight(1f)) {
                         Text(p.label, style = MaterialTheme.typography.bodyLarge)
                         Text(
-                            if (st.loggedIn) "已登录 · ${st.hit.joinToString("/")}"
+                            if (p == Platform.BILIBILI && st.loggedIn) "已保存登录凭据"
+                            else if (st.loggedIn) "已登录 · ${st.hit.joinToString("/")}"
                             else if (st.hasCookie) "已填 Cookie（未见登录凭证）"
                             else "未登录",
                             style = MaterialTheme.typography.bodySmall,
@@ -128,9 +141,18 @@ fun SettingsScreen(vm: AppViewModel, onEditCookie: (Platform) -> Unit) {
                         }) { Text("清除") }
                     }
                 }
+                if (p == Platform.BILIBILI) {
+                    OutlinedButton(onClick = { showBiliWebLogin = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("B站网页登录（自动保存登录态）")
+                    }
+                }
                 if (i < platforms.size - 1) HorizontalDivider()
             }
         }
+
+        Spacer(Modifier.height(16.dp))
+        GkSectionLabel("网络")
+        ProxyCard(vm)
 
         Spacer(Modifier.height(16.dp))
         GkSectionLabel("下载位置")
@@ -493,6 +515,69 @@ private fun SaveLocationCard(vm: AppViewModel) {
                 epoch += 1
                 vm.notify("已恢复默认位置")
             }) { Text("恢复默认") }
+        }
+    }
+}
+
+/**
+ * 代理设置（1.0.30）。
+ *
+ * 存在的理由：X 在境内直连不通，而本应用此前没有任何代理入口，
+ * 于是 GraphQL / syndication / WebView 三条路一起挂。填一个本地代理端口即可。
+ *
+ * 保存后立刻 [Http.onProxyChanged] —— OkHttp 的 client 与WebView 的全局代理
+ * 都是缓存的，不重建的话要等到下次冷启动才生效。
+ */
+@Composable
+private fun ProxyCard(vm: AppViewModel) {
+    val ctx = LocalContext.current
+    var epoch by remember { mutableStateOf(0) }
+    var text by remember(epoch) { mutableStateOf(ProxySettings.raw(ctx)) }
+    val bad = remember(epoch) { ProxySettings.invalid(ctx) }
+
+    GkCard {
+        Text(
+            "X 等站点在境内需要代理。填本机代理的混合端口，例如 " +
+                "http://127.0.0.1:7897（Clash / v2rayN / Shadowsocks）。留空表示直连。" +
+                "修改后需重新解析当前作品。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it },
+            label = { Text("代理地址") },
+            placeholder = { Text("http://127.0.0.1:7897") },
+            singleLine = true,
+            isError = bad,
+            supportingText = if (bad) {
+                { Text("地址格式不对，将按直连处理", color = MaterialTheme.colorScheme.error) }
+            } else null,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (ProxySettings.raw(ctx).isEmpty()) "当前：直连"
+                else "当前：${ProxySettings.raw(ctx)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = {
+                text = ""
+                ProxySettings.set(ctx, "")
+                Http.onProxyChanged(ctx)
+                epoch += 1
+                vm.notify("已改为直连")
+            }) { Text("清除") }
+            Button(onClick = {
+                ProxySettings.set(ctx, text)
+                Http.onProxyChanged(ctx)
+                epoch += 1
+                vm.notify("代理已保存")
+            }) { Text("保存") }
         }
     }
 }

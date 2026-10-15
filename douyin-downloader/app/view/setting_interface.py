@@ -14,8 +14,7 @@ from . import design as D
 from .account_card import (AccountCard, STATE_COOKIE, STATE_LOGIN, STATE_NONE,
                            profile_logged_in)
 from .cookie_dialog import (BILI_FIELDS, CookieDialog, DOUYIN_FIELDS,
-                            EH_FIELDS, INS_FIELDS, JM_FIELDS, X_FIELDS,
-                            XHS_FIELDS)
+                            INS_FIELDS, JM_FIELDS, X_FIELDS, XHS_FIELDS)
 
 # 平台账号规格：一张卡 = 一个平台。
 # (key, 图标, 显示名, 说明, cookie 配置键, cookie 特征字段, profile 目录属性)
@@ -41,9 +40,6 @@ _PLATFORM_SPECS = [
     ("jmcomic", FIF.PHOTO, "禁漫天堂",
      "大部分内容免登录，登录后可解析受限本子",
      "jm_cookie", "AVS", "jm_profile_dir"),
-    ("ehentai", FIF.PHOTO, "E-Hentai",
-     "免登录可下 1280 宽压缩版；登录后可下原图、更稳",
-     "eh_cookie", "ipb_member_id", "eh_profile_dir"),
 ]
 
 # 填 Cookie 对话框的文案与字段
@@ -61,9 +57,6 @@ _COOKIE_SPECS = {
                               "→ Cookies → xiaohongshu.com 中找到以下字段：", XHS_FIELDS),
     "jmcomic": ("禁漫", "在浏览器登录 18comic.vip 后，按 F12 → 应用/Application "
                         "→ Cookies 中找到 AVS：", JM_FIELDS),
-    "ehentai": ("E-Hentai", "在浏览器登录 e-hentai.org 后，按 F12 → 应用/"
-                           "Application → Cookies → e-hentai.org 中找到以下字段：",
-                EH_FIELDS),
 }
 
 # 登录成功后补一句"拿到了什么"，比单纯「登录成功」有用
@@ -74,7 +67,6 @@ _LOGIN_GAIN = {
     "bilibili": "已解锁 1080P 及以上",
     "xiaohongshu": "解析更稳定",
     "jmcomic": "可解析受限本子",
-    "ehentai": "可下原图（免登录只有压缩版）",
 }
 
 _NAME_OF = {spec[0]: spec[2] for spec in _PLATFORM_SPECS}
@@ -248,26 +240,6 @@ class SettingInterface(ScrollArea):
             group.addSettingCard(card)
             self.accountCards[key] = (card, cfg_key, token, profile_attr)
         self._refresh_account_state()
-        self.vBox.addWidget(group)
-        self._build_eh_group()
-
-    def _build_eh_group(self):
-        """E-Hentai 专属开关：原图 vs 1280 宽压缩版。
-
-        单独一组的理由：这条开关的取舍不是「更好/更差」，而是
-        **原图更清晰但更慢、更容易失败、还吃站点配额** —— 放在下载组的
-        通用开关里会被当成画质开关，误开后一整本下不下来。
-        """
-        group = SettingCardGroup("E-Hentai", self.view)
-        card = SwitchSettingCard(
-            FIF.PHOTO, "优先下载原图",
-            "开启后取站点原图（清晰度最高）；关闭则用 1280 宽压缩版，"
-            "更快更稳。原图通道对登录态与站点配额敏感，失败会自动降级。",
-            parent=group)
-        card.setChecked(bool(self.ctx.config.get("eh_original", False)))
-        card.checkedChanged.connect(
-            lambda checked: self.ctx.config.set("eh_original", bool(checked)))
-        group.addSettingCard(card)
         self.vBox.addWidget(group)
 
     # ------------------------------------------------------------------ #

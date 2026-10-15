@@ -12,8 +12,8 @@ android {
         applicationId = "com.xd.vdl"
         minSdk = 24
         targetSdk = 34
-        versionCode = 40
-        versionName = "1.0.39"
+        versionCode = 45
+        versionName = "1.0.44"
         vectorDrawables { useSupportLibrary = true }
     }
 
@@ -45,6 +45,9 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    // 抖音解析靠注入 JS hook 拦 XHR，必须赶在页面自己的脚本之前装 —— 用
+    // addDocumentStartJavaScript（老设备不支持时自动退化为 onPageStarted 注入）
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")

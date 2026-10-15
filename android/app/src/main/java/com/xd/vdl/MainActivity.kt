@@ -64,6 +64,9 @@ class MainActivity : ComponentActivity() {
         CookieStore.init(this)
         com.xd.vdl.core.SaveSettings.init(this)
         com.xd.vdl.core.parse.JmSession.init(this)
+        // 代理设置要读 SharedPreferences，Http 的 client 构造时就需要 Context。
+        // 放在这里（而不是各处懒初始化）保证 WebView 兜底那条路也用得上代理。
+        com.xd.vdl.core.net.Http.attachContext(this)
         askNotificationPermission()
         askStoragePermission()
         handleIntent(intent)

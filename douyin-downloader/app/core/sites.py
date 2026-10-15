@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""多平台单作品解析路由：抖音 / X / Instagram / Bilibili / 小红书 / Iwara / Pornhub / hanime1 / 禁漫 / E-Hentai
+"""多平台单作品解析路由：抖音 / X / Instagram / Bilibili / 小红书 / Iwara / Pornhub / hanime1 / 禁漫
 
 - 抖音：走 parser.DouyinParser（分享页 RENDER_DATA，最高码率）
 - X：走 syndication 公开接口（免登录），variants 中挑最高码率 mp4
@@ -11,7 +11,6 @@
 - Pornhub：纯 HTTP —— 页面 flashvars 里拿 get_media 签名端点，换到 4 档 mp4 直链
 - hanime1：纯 HTTP + curl_cffi 指纹（站点认 TLS，requests 会 SSL EOF）——
   页面 <video> 里直接挂 3 档 <source>，换到 hembed CDN 的签名 mp4 直链
-- E-Hentai：api.php 拿画廊元数据，逐张图片在下载时才按页取（见 ehentai_bridge）
 """
 import hashlib
 import json
@@ -52,7 +51,7 @@ def detect_platform(url: str) -> str:
         return "jmcomic"
     raise ParseError(
         f"暂不支持该链接（{urllib.parse.urlparse(url).netloc}）。目前支持 "
-        "抖音 / X / Instagram / B站 / 小红书 / Iwara / Pornhub / hanime1 / 禁漫 / E-Hentai")
+        "抖音 / X / Instagram / B站 / 小红书 / Iwara / Pornhub / hanime1 / 禁漫")
 
 
 def _find_key_recursive(node, key, depth: int = 0):
@@ -101,7 +100,6 @@ def _parse_share(text: str, ctx: SiteContext = None, **legacy) -> VideoInfo:
         ctx = SiteContext(**{k: v for k, v in legacy.items() if v is not None})
     elif legacy:
         ctx = ctx.replaced(**legacy)
-    from .ehentai_bridge import parse_ehentai
     from .jmcomic_bridge import parse_jmcomic, try_parse_jm
 
     url = ""
@@ -128,16 +126,13 @@ def _parse_share(text: str, ctx: SiteContext = None, **legacy) -> VideoInfo:
             return parse_pornhub(url)
         if platform == "hanime1":
             return parse_hanime1(url)
-        if platform == "ehentai":
-            return parse_ehentai(url, ctx.eh_cookie,
-                                 prefer_original=ctx.eh_prefer_original)
         # 未知域名但路径像禁漫 /album/ /photo/
         kind, jmid = try_parse_jm(url)
         if jmid:
             return parse_jmcomic(url, ctx.jm_cookie)
         raise ParseError(
             f"暂不支持该链接（{urllib.parse.urlparse(url).netloc}）。目前支持 "
-            "抖音 / X / Instagram / B站 / 小红书 / Iwara / Pornhub / hanime1 / 禁漫 / E-Hentai")
+            "抖音 / X / Instagram / B站 / 小红书 / Iwara / Pornhub / hanime1 / 禁漫")
     kind, jmid = try_parse_jm(text)
     if jmid:
         return parse_jmcomic(text, ctx.jm_cookie)

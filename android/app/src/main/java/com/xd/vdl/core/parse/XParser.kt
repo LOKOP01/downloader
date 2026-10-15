@@ -72,6 +72,21 @@ object XParser : Parser {
 
     private val TWEET_ID_RE = Regex("/status(?:es)?/(\\d+)")
 
+    /**
+     * 「根本没连上」的异常特征。
+     *
+     * OkHttp 在连接被对端/中间设备切断时抛的 message 里含这些词；
+     * `connection closed` 是最常见的一种（HTTP/2 的 GOAWAY、
+     * 或 TLS 握手被 RST 都会走到这里）。
+     */
+    private val NET_ERRORS = listOf(
+        "connection closed", "connection reset", "unexpected end of stream",
+        "failed to connect", "unable to connect", "timeout", "timed out",
+        "eofexception", "streamreset", "socketexception", "unreachable",
+        "network is unreachable", "ssl", "handshake", "no route to host",
+        "refused", "被重置", "超时",
+    )
+
     /** twimg 地址路径里的 `/{宽}x{高}/` */
     private val URL_RES_RE = Regex("/(\\d{2,5})x(\\d{2,5})/")
 
@@ -118,6 +133,16 @@ object XParser : Parser {
 
         val detail = reasons.joinToString("；")
         AppLog.w("X 解析失败：$detail")
+        // 三条链路全挂时优先怀疑网络：X 在境内直连不通，而三条路（两个 HTTP
+        // 域名 + WebView）用的是同一套网络出口，全挂说明根本没连上，
+        // 而不是接口变了。提示要说清楚，否则用户会去反复换 Cookie。
+        val allNetwork = reasons.all { NET_ERRORS.any { it.contains(it, true) } }
+        if (allNetwork) {
+            throw ParseException(
+                "连不上 X 的服务器（$detail）。X 在境内通常需要代理，" +
+                    "请到「设置 → 网络」填本机代理端口（如 http://127.0.0.1:7897）后重试"
+            )
+        }
         throw ParseException(
             if (loggedIn) "未找到视频直链（$detail）"
             else "未找到视频直链（$detail）。该推文可能需要登录，先在设置里填好 X 的 auth_token / ct0"

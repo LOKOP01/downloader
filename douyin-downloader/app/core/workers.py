@@ -129,7 +129,7 @@ class LoginWorker(QThread):
 
     def run(self):
         from .browser_bridge import (BrowserBridgeError, dump_cookies, login,
-                                     login_bilibili, login_ehentai,
+                                     login_bilibili,
                                      login_instagram, login_jmcomic, login_x,
                                      login_xiaohongshu)
         try:
@@ -143,18 +143,15 @@ class LoginWorker(QThread):
                 ok, msg = login_xiaohongshu(self.profile_dir)
             elif self.site == "jmcomic":
                 ok, msg = login_jmcomic(self.profile_dir)
-            elif self.site == "ehentai":
-                ok, msg = login_ehentai(self.profile_dir)
             else:
                 ok, msg = login(self.profile_dir)
-            if ok and self.site in ("bilibili", "xiaohongshu", "jmcomic",
-                                    "ehentai"):
+            if ok and self.site in ("bilibili", "xiaohongshu",
+                                    "jmcomic"):
                 # 解析走 HTTP 客户端，需要把浏览器登录态导成 Cookie
                 domain, label = {
                     "bilibili": ("bilibili.com", "B 站"),
                     "xiaohongshu": ("xiaohongshu.com", "小红书"),
                     "jmcomic": ("18comic", "禁漫"),
-                    "ehentai": ("e-hentai", "E-Hentai"),
                 }[self.site]
                 cookie = dump_cookies(self.profile_dir, domain)
                 if cookie:
@@ -220,54 +217,6 @@ class JmPreviewPageWorker(QThread):
                              self.session.page_bytes(self.chapter, page))
         except Exception as e:  # noqa: BLE001
             log.exception("禁漫预览取页失败")
-            self.failed.emit(f"这一页取不到：{e}")
-
-
-class EhPreviewOpenWorker(QThread):
-    """建立 E-Hentai 预览会话并取第一页。
-
-    首张图要先请求图片页拿 H@H 直链（还要能换节点），都在后台做，
-    否则界面会白等好几秒。
-    """
-    opened = Signal(object, int, bytes)   # session, 页数, 首页字节
-    failed = Signal(str)
-
-    def __init__(self, spec: str, cookie: str = "",
-                 prefer_original: bool = False, parent=None):
-        super().__init__(parent)
-        self.spec = spec
-        self.cookie = cookie
-        self.prefer_original = prefer_original
-
-    def run(self):
-        from .ehentai_bridge import EhentaiPreview
-        try:
-            session = EhentaiPreview(self.spec, self.cookie,
-                                     self.prefer_original)
-            self.opened.emit(session, session.page_count,
-                             session.page_bytes(0))
-        except Exception as e:  # noqa: BLE001
-            log.exception("E-Hentai 预览打开失败")
-            self.failed.emit(f"E-Hentai 预览打不开：{e}")
-
-
-class EhPreviewPageWorker(QThread):
-    """取 E-Hentai 预览的某一页"""
-    loaded = Signal(int, int, bytes)   # 页下标, 总页数, 图片字节
-    failed = Signal(str)
-
-    def __init__(self, session, page: int, parent=None):
-        super().__init__(parent)
-        self.session = session
-        self.page = page
-
-    def run(self):
-        try:
-            total = self.session.page_count
-            page = max(0, min(int(self.page), total - 1))
-            self.loaded.emit(page, total, self.session.page_bytes(page))
-        except Exception as e:  # noqa: BLE001
-            log.exception("E-Hentai 预览取页失败")
             self.failed.emit(f"这一页取不到：{e}")
 
 

@@ -18,7 +18,6 @@ SOURCE_COOKIE_KEY = {
     "bilibili": "bili_cookie",
     "xiaohongshu": "xhs_cookie",
     "jmcomic": "jm_cookie",
-    "ehentai": "eh_cookie",
 }
 
 
@@ -37,9 +36,6 @@ class SiteContext:
     xhs_profile_dir: str = ""
     jm_cookie: str = ""               # 禁漫天堂
     jm_profile_dir: str = ""
-    eh_cookie: str = ""               # E-Hentai（登录后可下原图）
-    eh_profile_dir: str = ""
-    eh_prefer_original: bool = False   # E-Hentai 是否优先下原图（见设置页开关）
 
     @classmethod
     def from_config(cls, config) -> "SiteContext":
@@ -59,9 +55,6 @@ class SiteContext:
             xhs_profile_dir=config.xhs_profile_dir,
             jm_cookie=config.get("jm_cookie", ""),
             jm_profile_dir=config.jm_profile_dir,
-            eh_cookie=config.get("eh_cookie", ""),
-            eh_profile_dir=config.eh_profile_dir,
-            eh_prefer_original=bool(config.get("eh_original", False)),
         )
 
     def cookie_for(self, source: str) -> str:

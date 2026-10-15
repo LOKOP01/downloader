@@ -104,10 +104,12 @@ class AppViewModel : ViewModel() {
                     val shown = dropdownQualities(result.qualities)
                     _info.value = result.copy(qualities = shown)
                     _qualityIndex.value = 0
+                    // 原始档数一并打出来：只写「N 档」时，分不清是解析真只拿到 1 档，
+                    // 还是拿到了很多档被界面筛掉了 —— 这两种情况的排查方向完全相反
                     AppLog.i(
                         "解析成功 ${result.platform.label}「${result.title}」用时 " +
                             "${(System.currentTimeMillis() - t0) / 1000.0}s | " +
-                            "画质 ${shown.size} 档",
+                            "画质 ${shown.size} 档（原始 ${result.qualities.size} 档）",
                     )
                 }
             } catch (e: Exception) {

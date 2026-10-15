@@ -2,6 +2,7 @@ package com.xd.vdl.core.parse
 
 import android.app.Activity
 import com.xd.vdl.core.Platform
+import com.xd.vdl.core.AppLog
 import com.xd.vdl.core.model.Quality
 import com.xd.vdl.core.model.VideoInfo
 import com.xd.vdl.core.net.Http
@@ -141,7 +142,23 @@ object BiliParser : Parser {
             "https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid" +
                 "&fnval=4048&fnver=0&fourk=1&qn=127",
             Platform.BILIBILI)
+        if (play.optInt("code") != 0)
+            throw ParseException("B站播放接口失败：" + play.optString("message"))
         val data = play.optJSONObject("data") ?: return emptyList()
+        val streams = data.optJSONObject("dash")?.optJSONArray("video")
+        val ids = linkedSetOf<Int>()
+        if (streams != null) for (i in 0 until streams.length()) {
+            streams.optJSONObject(i)?.let { ids.add(it.optInt("id")) }
+        }
+        AppLog.i("B站实际码流档位：" + ids.sortedDescending().joinToString(","))
+        if (ids.isNotEmpty() && ids.all { it <= 32 }) {
+            // 只在返回低清时确认服务端登录状态，正常解析不增加一次请求。
+            runCatching {
+                val nav = Http.getJson("https://api.bilibili.com/x/web-interface/nav", Platform.BILIBILI)
+                val loggedIn = nav.optJSONObject("data")?.optBoolean("isLogin") == true
+                AppLog.i("B站服务端登录状态：" + if (loggedIn) "有效（当前视频/权限仅返回低清）" else "未登录或Cookie已失效，请重新保存SESSDATA")
+            }.onFailure { AppLog.w("B站登录状态检查失败（不影响已有地址）：" + it.javaClass.simpleName) }
+        }
         val dur = durationSec
         val out = mutableListOf<Quality>()
 

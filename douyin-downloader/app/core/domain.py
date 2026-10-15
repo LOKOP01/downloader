@@ -22,10 +22,6 @@ PORNHUB_HOSTS = ("pornhub.com", "phncdn.com")
 # 必须 curl_cffi impersonate），视频直链落在 vdownload.hembed.com。
 # 该 CDN 不吃 Referer、也不用 Cookie，普通 requests 就能下。
 HANIME1_HOSTS = ("hanime1.me", "hembed.com")
-# e-hentai 族：主站（e-hentai / exhentai）+ 封面图 CDN(ehgt.org) + 原图 H@H CDN
-# （hath.network 的主机名是随机子域，只能按后缀认）。图片直链裸下即可，
-# 但走错平台判定会拿到抖音 Referer，这里认出来是为了给对 Referer。
-EHENTAI_HOSTS = ("e-hentai.org", "exhentai.org", "ehgt.org", "hath.network")
 
 # 平台标识 -> 该平台"需要带 Cookie 请求 CDN"的域名集合
 PLATFORM_HOSTS = {
@@ -38,7 +34,6 @@ PLATFORM_HOSTS = {
     "iwara": IWARA_HOSTS,
     "pornhub": PORNHUB_HOSTS,
     "hanime1": HANIME1_HOSTS,
-    "ehentai": EHENTAI_HOSTS,
 }
 
 # 下载外链时需要携带登录态 Cookie 的平台（其余平台 CDN 不带 Cookie 更稳，
@@ -86,8 +81,6 @@ def platform_of_source(source: str) -> str:
         return "pornhub"
     if src in ("hanime", "hanime1.me", "hanime1me"):
         return "hanime1"
-    if src in ("eh", "e-hentai", "exhentai", "hath"):
-        return "ehentai"
     return src
 
 
@@ -119,5 +112,4 @@ def referer_for(url: str) -> str:
         "iwara": "https://www.iwara.tv/",
         "pornhub": "https://www.pornhub.com/",
         "hanime1": "https://hanime1.me/",
-        "ehentai": "https://e-hentai.org/",
     }.get(platform, "https://www.douyin.com/")

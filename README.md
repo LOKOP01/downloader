@@ -17,7 +17,6 @@
 | Pornhub | |
 | hanime1 | |
 | 禁漫天堂 | 种子号解析 |
-| E-Hentai | 免登录可下 1280 宽压缩版，登录后可下原图 |
 
 > 上表是**桌面端**的完整列表。安卓端少三个：Iwara / Pornhub / hanime1 目前只有桌面端支持。
 
@@ -37,11 +36,10 @@
 │   │   │   ├── models.py       # 数据模型（VideoInfo 等）
 │   │   │   ├── config.py       # 配置读写（DEFAULT_CONFIG 是默认值唯一来源）
 │   │   │   ├── workers.py      # 后台线程（登录、预览、封面）
-│   │   │   ├── proxy.py        # 系统代理读取 + 端口漂移时自动回退
+│   │   │   ├── proxy.py        # 系统代理读取
 │   │   │   ├── ffmpeg.py       # 音视频合并组件管理
 │   │   │   ├── browser_bridge.py  # Playwright 驱动本机 Edge 取 Cookie
 │   │   │   ├── jmcomic_bridge.py  # 禁漫图片解码
-│   │   │   ├── ehentai_bridge.py  # E-Hentai 画廊解析与逐张下载
 │   │   │   └── xhsapi/         # 小红书签名直连（vendor，见该目录 __init__ 的许可说明）
 │   │   ├── view/               # 界面（qfluentwidgets）
 │   │   └── main_window.py
@@ -102,7 +100,7 @@ pyinstaller build_exe.spec
 
 1. 粘链接，程序识别站点并解析，选画质，下载。
 2. 下载完成后可自动复制文件到剪贴板（配置项 `auto_copy_file`）。
-3. 需要登录的站点（X / Instagram / 小红书 / 禁漫 / E-Hentai）在设置页填 Cookie，或用内置的浏览器登录流程导出。
+3. 需要登录的站点（X / Instagram / 小红书 / 禁漫）在设置页填 Cookie，或用内置的浏览器登录流程导出。
 4. B 站 DASH 合并需要 ffmpeg，在「设置 → 合并组件（ffmpeg）」里下载，不是 pip 依赖。
 5. 解析失败或下载卡住，看 `logs/app.log`。
 
@@ -119,8 +117,6 @@ pyinstaller build_exe.spec
   "bili_cookie": "",                // Bilibili
   "xhs_cookie": "",                 // 小红书
   "jm_cookie": "",                  // 禁漫天堂（AVS）
-  "eh_cookie": "",                  // E-Hentai（登录后可下原图）
-  "eh_original": false,             // E-Hentai 优先下原图（更慢、更易失败、耗站点配额）
   "naming_rule": "unique_id",       // unique_id / timestamp / author_title / title / id_title
   "max_concurrent": 3,              // 同时下载数
   "theme": "dark",                  // dark / light / auto
