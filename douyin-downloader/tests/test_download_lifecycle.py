@@ -10,6 +10,16 @@ from app.core.models import DownloadTaskInfo
 
 
 class DownloadTaskLifecycleTest(unittest.TestCase):
+    def test_jm_failure_includes_exception_in_log(self):
+        manager = DownloadManager()
+        info = DownloadTaskInfo(task_id="jm-error", url="jmcomic://album/350234")
+        with patch("app.core.jmcomic_bridge.download_jmcomic", side_effect=RuntimeError("init diagnostic sentinel")):
+            with self.assertLogs("vdl.download", level="ERROR") as logs:
+                manager._run_jmcomic(info, threading.Event(), "")
+        self.assertEqual(info.status, "失败")
+        self.assertIn("init diagnostic sentinel", info.error)
+        self.assertIn("RuntimeError", "\n".join(logs.output))
+
     def test_cookie_is_sent_in_cookie_header(self):
         manager = DownloadManager(segment_enabled=False)
         seen = []

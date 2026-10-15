@@ -97,6 +97,15 @@ pyinstaller build_exe.spec
 
 产物在 `dist/` 下。安装包用 `installer/setup.iss` 配合 Inno Setup 编译。
 
+若单文件 EXE 提示 `Could not create temporary directory!`，说明启动解包所需的系统临时目录不可用。可构建不依赖启动时临时解包的文件夹版（PowerShell）：
+
+```powershell
+$env:VDL_BUILD_MODE = "onedir"
+python -m PyInstaller --noconfirm --distpath dist/portable-build build_exe.spec
+```
+
+文件夹版的 EXE 必须与 `_internal/` 一起保留，不能只复制 EXE。程序运行期临时文件使用自身目录的 `.runtime-temp/`，只改变本进程及其子进程环境，不修改Windows用户环境变量。
+
 ### 使用
 
 1. 粘链接，程序识别站点并解析，选画质，下载。
@@ -113,7 +122,8 @@ pyinstaller build_exe.spec
 - **导入漫画库**：选择总目录，每个子文件夹作为一本漫画。可将一本或多本的文件夹直接拖进书架。
 - 页面按相对路径自然排序，例如 `第2章/2.jpg` 在 `第2章/10.jpg`、`第10章/1.jpg` 之前。
 - 点击封面继续阅读；支持搜索、最近阅读、收藏、按名称或进度排序，右键可移除记录，原图片保留。
-- 下载任务里的独立文件夹 JPG 图集、禁漫任务提供「阅读漫画」按钮，同目录任务全部完成后可加入书架并打开；视频封面不会把整个下载目录误导入。
+- 禁漫任务下载成功后自动加入漫画书架（不自动弹窗），保留已有收藏与阅读进度；失败和取消不入库，书架忙时排队处理。
+- 下载任务里的独立文件夹 JPG 图集、禁漫任务仍提供「阅读漫画」按钮；视频封面不会把整个下载目录误导入。
 - 「更多 → 导入独立页间阅读器书架」可选择 `%LOCALAPPDATA%\FolderMangaReader\library.json`，导入此前独立版的收藏与进度；已有记录不会被覆盖。
 - 新增或移除图片后可刷新书架；每次打开漫画也会重新扫描。
 - 当前阅读器支持 JPG/JPEG 文件夹，不直接读取 ZIP/CBZ；单张源图超过 1600 万像素会明确提示，避免解码内存失控。

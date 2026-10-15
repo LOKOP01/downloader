@@ -7,14 +7,20 @@
 import os
 import sys
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QApplication
-
 # PyInstaller 打包后，配置文件放到 exe 同级目录；源码运行则放项目根目录
 if getattr(sys, "frozen", False):
     BASE_DIR = os.path.dirname(os.path.abspath(sys.executable))
 else:
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+# 文件夹打包无需bootloader临时解包；运行期的浏览器/Qt临时文件也不再依赖系统TEMP。
+if getattr(sys, "frozen", False):
+    from app.core.runtime_temp import configure_runtime_temp
+    configure_runtime_temp(BASE_DIR)
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QApplication
 
 
 def main():

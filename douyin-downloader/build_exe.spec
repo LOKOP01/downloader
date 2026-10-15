@@ -127,12 +127,13 @@ for _name in ('libssl-3-x64.dll', 'libcrypto-3-x64.dll', 'libssl-3.dll', 'libcry
 
 pyz = PYZ(a.pure)
 
+# 文件夹版无需启动时解包至系统TEMP；默认保留单文件构建兼容原安装流程。
+_folder_build = os.environ.get("VDL_BUILD_MODE") == "onedir"
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
-    [],
+    *([] if _folder_build else [a.binaries, a.datas, []]),
+    exclude_binaries=_folder_build,
     name='视频下载器',
     icon=ICON_PATH,
     version=VERSION_FILE,
@@ -149,3 +150,6 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+
+if _folder_build:
+    collect = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="视频下载器")

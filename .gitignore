@@ -120,6 +120,9 @@ Desktop.ini
 
 # 本机安装目录（卸载器及运行文件，不属于源码）
 /default/
+/build-archive/
+/cleanup-report/
+.runtime-temp/
 
 # 离屏几何回归测试临时配置
 /douyin-downloader/colfix_*/

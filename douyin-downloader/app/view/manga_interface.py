@@ -1,7 +1,9 @@
 """Manga shelf integrated with the desktop application's design and navigation."""
 import os
+import logging
+from collections import deque
 
-from PySide6.QtCore import QRectF, QSize, Qt, QUrl, Slot
+from PySide6.QtCore import QRectF, QSize, Qt, QUrl, Slot, QTimer
 from PySide6.QtGui import QColor, QDesktopServices, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QHBoxLayout, QListView,
                                QListWidget, QListWidgetItem, QMenu, QMessageBox,
@@ -83,6 +85,8 @@ class MangaInterface(QWidget):
         self.jobs = LocalJobs(self)
         self._busy = False
         self._closed = False
+        self._auto_add_queue = deque()
+        self._auto_add_keys = set()
         self._reader = None
         self._covers = {}
         self._cover_pending = set()
@@ -150,6 +154,7 @@ class MangaInterface(QWidget):
         self.refresh_shelf()
         if self.library.warning:
             self.status.setText(self.library.warning)
+        ctx.manager.task_finished.connect(self._queue_completed_jm)
 
     def _save(self):
         try:
@@ -159,10 +164,33 @@ class MangaInterface(QWidget):
             self.status.setText(f"书架保存失败：{error}")
             return False
 
+    @Slot(object)
+    def _queue_completed_jm(self, info):
+        if self._closed or info.status != "已完成" or not (info.url or "").startswith("jmcomic://"):
+            return
+        folder = info.save_path
+        if not folder or not os.path.isdir(folder):
+            logging.getLogger("vdl.manga").warning("禁漫自动入库跳过：保存目录不存在")
+            return
+        key = folder_key(folder)
+        if key not in self._auto_add_keys:
+            self._auto_add_keys.add(key)
+            self._auto_add_queue.append((folder, info.name or ""))
+        self._drain_auto_add()
+
+    def _drain_auto_add(self):
+        if self._closed or self._busy or not self._auto_add_queue:
+            return
+        folder, title = self._auto_add_queue.popleft()
+        self._auto_add_keys.discard(folder_key(folder))
+        self.import_folder(folder, title=title)
+
     def _set_busy(self, busy):
         self._busy = busy
         for button in (self.addBtn, self.libraryBtn, self.refreshBtn, self.moreBtn):
             button.setEnabled(not busy)
+        if not busy and not self._closed and self._auto_add_queue:
+            QTimer.singleShot(0, self._drain_auto_add)
 
     def _choose_book(self):
         path = QFileDialog.getExistingDirectory(self, "选择一本漫画的文件夹", self.ctx.config.get("download_path"))
@@ -174,7 +202,7 @@ class MangaInterface(QWidget):
         if path:
             self.import_folder(path, True)
 
-    def import_folder(self, folder, library_root=False, read=False):
+    def import_folder(self, folder, library_root=False, read=False, title=""):
         if self._busy or self._closed:
             return
         self._set_busy(True)
@@ -190,7 +218,11 @@ class MangaInterface(QWidget):
                 return
             added = []
             for path, pages in found:
-                added.append((self.library.add(path, pages), pages))
+                existing = next((b for b in self.library.books if folder_key(b.folder) == folder_key(path)), None)
+                book = self.library.add(path, pages)
+                if existing is None and title:
+                    book.title = title
+                added.append((book, pages))
                 self._covers.pop(folder_key(path), None)
             self._cover_generation += 1
             saved = self._save()
@@ -465,6 +497,8 @@ class MangaInterface(QWidget):
         if self._closed:
             return
         self._closed = True
+        self._auto_add_queue.clear()
+        self._auto_add_keys.clear()
         if self._reader is not None:
             self._reader.close()
         self.jobs.shutdown()

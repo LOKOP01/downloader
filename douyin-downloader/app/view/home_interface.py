@@ -429,7 +429,7 @@ class HomeInterface(ScrollArea):
         if info.source == "jmcomic":
             folder = os.path.join(base, fname)
             self.ctx.manager.add(
-                info.play_url, folder, fname,
+                info.play_url, folder, info.safe_title(60),
                 cookies=SiteContext.from_config(cfg).cookie_for("jmcomic"))
             pages = (info.extra or {}).get("pages") or "?"
             self._toast("已加入队列", f"禁漫本子共 {pages} 页，开始下载", "success")

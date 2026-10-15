@@ -920,6 +920,8 @@ class DownloadManager(QObject):
         except Exception as e:  # noqa: BLE001
             info.status = "失败"
             info.error = str(e)[:200]
+            # 只记录异常栈，不记录Cookie；此前这里只改状态导致日志看不见失败原因。
+            log.exception("禁漫下载失败 %s：%s", info.task_id, info.error)
         info.speed = 0
         self.task_progress.emit(info)
 
