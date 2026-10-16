@@ -1,0 +1,613 @@
+﻿diff --git a/android/app/src/main/java/com/xd/vdl/core/DownloadManager.kt b/android/app/src/main/java/com/xd/vdl/core/DownloadManager.kt
+index 531dd78..83bf211 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/DownloadManager.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/DownloadManager.kt
+@@ -47,7 +47,6 @@ object DownloadManager {
+             else -> quality.label
+         }
+         _tasks.update { it + DownloadTask(id, info.title, info.platform, label) }
+-        DownloadService.start(ctx)
+         AppLog.i(
+             "入队 $id ${info.platform.label}「${info.title}」| $label | " +
+                 "视频候选=${if (info.isImage) 0 else quality.videoCandidates.size} | " +
+@@ -62,8 +61,13 @@ object DownloadManager {
+         jobs[id] = job
+         job.invokeOnCompletion {
+             jobs.remove(id)
++            // 只有确认没有任何在跑/待跑任务时才停服务。
++            // 注意顺序：**先登记本任务、再启动服务**。原来的顺序是先 start 服务，
++            // 再登记 job，中间这段窗口里旧任务的收尾会看到 jobs 为空并 stop()，
++            // 把刚入队新任务的前台保护撤掉（进程可能被系统回收）。
+             if (jobs.isEmpty()) DownloadService.stop(ctx)
+         }
++        DownloadService.start(ctx)
+         job.start()
+         refreshNotification(force = true)
+     }
+@@ -158,9 +162,52 @@ object DownloadManager {
+             )
+             AppLog.i("DASH 两轨完成 $id：视频 ${vf.length()} + 音频 ${af.length()}，开始合并")
+             setStatus(id, TaskStatus.MERGING)
+-            Muxer.merge(vf, af, out)
++            try {
++                Muxer.merge(vf, af, out)
++            } catch (e: CancellationException) {
++                // 半成品不能留在 work 里被当作成功产物。
++                out.delete()
++                throw e
++            }
+             vf.delete()
+             af.delete()
++        } else if (quality.segmentUrls.size > 1) {
++            // B 站 durl 分段：同一路视频被切成多段，必须按顺序拼成一个文件。
++            // 原来每段被当成独立档位，用户只能拿到第一段（其余静默丢失）。
++            val segments = quality.segmentUrls
++            var written = 0L
++            val totalSize = quality.sizeBytes
++            segments.forEachIndexed { index, url ->
++                val part = File(work, "seg%03d.mp4".format(index))
++                val candidates = listOf(url) + quality.segmentBackups.getOrElse(index) { emptyList() }
++                Downloader.downloadFirst(
++                    candidates, info.platform, part,
++                    onProgress = { d, _ ->
++                        update(id) {
++                            it.copy(
++                                downloaded = written + d,
++                                total = if (totalSize > 0) totalSize else 0,
++                            )
++                        }
++                    },
++                    onTry = { i, n, u ->
++                        AppLog.i("分段 $id ${index + 1}/${segments.size} 地址 $i/$n ${Downloader.hostOf(u)}")
++                    },
++                    onFail = { i, n, u, err ->
++                        AppLog.w("分段 $id ${index + 1}/${segments.size} 地址 $i/$n 失败 ${Downloader.hostOf(u)}：$err")
++                    },
++                )
++                written += part.length()
++            }
++            setStatus(id, TaskStatus.MERGING)
++            // 分段是同一个 mp4 的片段，直接按顺序首尾相接即可（无需重新编码）。
++            out.outputStream().buffered().use { sink ->
++                segments.indices.forEach { index ->
++                    File(work, "seg%03d.mp4".format(index)).inputStream().use { it.copyTo(sink) }
++                }
++            }
++            segments.indices.forEach { File(work, "seg%03d.mp4".format(it)).delete() }
++            AppLog.i("分段拼接完成 $id：${segments.size} 段 → ${out.length()} 字节")
+         } else {
+             Downloader.downloadFirst(
+                 quality.videoCandidates, info.platform, out,
+diff --git a/android/app/src/main/java/com/xd/vdl/core/DownloadService.kt b/android/app/src/main/java/com/xd/vdl/core/DownloadService.kt
+index 33c995f..1ef68cc 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/DownloadService.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/DownloadService.kt
+@@ -1,7 +1,10 @@
+ package com.xd.vdl.core
+ 
++import android.Manifest
+ import android.app.Service
+ import android.content.Context
++import android.content.pm.PackageManager
++import android.os.Build
+ import android.content.Intent
+ import android.os.IBinder
+ import androidx.core.app.NotificationManagerCompat
+@@ -40,6 +43,14 @@ class DownloadService : Service() {
+ 
+     fun setText(text: String, percent: Int?) {
+         runCatching {
++            // Android 13+ 用户可拒绝通知权限；未授权时 notify 会抛 SecurityException，
++            // 这里显式跳过（下载本身不受影响），也让 Lint 的 MissingPermission 有据可依。
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
++                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
++                PackageManager.PERMISSION_GRANTED
++            ) {
++                return
++            }
+             NotificationManagerCompat.from(this)
+                 .notify(Notifications.ID, Notifications.build(this, text, percent))
+         }
+diff --git a/android/app/src/main/java/com/xd/vdl/core/download/JmDownloader.kt b/android/app/src/main/java/com/xd/vdl/core/download/JmDownloader.kt
+index 254c90c..038f3cf 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/download/JmDownloader.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/download/JmDownloader.kt
+@@ -79,6 +79,17 @@ object JmDownloader {
+     /** 每处理这么多页重新估一次并发，避免一开始被第一页的极端尺寸带偏 */
+     private const val CONCURRENCY_RECHECK = 32
+ 
++    /**
++     * 首块的并发与页数。
++     *
++     * 页大小是**跑起来之后**才测得到的，而首块用满 [CONCURRENCY] 时，
++     * 遇到高清扫图会同时解码 8 张全尺寸位图（每路还要一份重排副本），
++     * 预算还没生效就可能先 OOM。所以先用很小的首块把尺寸测出来，
++     * 之后立刻按实测值放宽 —— 代价只有两页的吞吐。
++     */
++    private const val FIRST_BLOCK_CONCURRENCY = 2
++    private const val FIRST_PROBE_PAGES = 2
++
+     /**
+      * 按实测平均页大小反推能开几路。
+      *
+@@ -206,12 +217,14 @@ object JmDownloader {
+                 val domains = JmClient.imageDomains()
+                 val stats = BitmapStats()
+                 var done = 0
+-                var width = CONCURRENCY
++                var width = FIRST_BLOCK_CONCURRENCY
+                 var i = 0
++                var firstBlock = true
+                 // 分块跑：每块处理后按**实测页大小**重估并发，块内仍严格按页序写包。
+                 // 首块先用满 8 路（大多数本子是 3~4 MB/页），遇到高清扫图会自动收窄。
+                 while (i < jobs.size) {
+-                    val block = jobs.subList(i, minOf(i + CONCURRENCY_RECHECK, jobs.size))
++                    val span = if (firstBlock) FIRST_PROBE_PAGES else CONCURRENCY_RECHECK
++                    val block = jobs.subList(i, minOf(i + span, jobs.size))
+                     pipelineOrdered(
+                         items = block,
+                         concurrency = width,
+@@ -232,6 +245,7 @@ object JmDownloader {
+                         },
+                     )
+                     i += block.size
++                    firstBlock = false
+                     val next = concurrencyFor(stats.avg())
+                     if (next != width) {
+                         AppLog.i(
+diff --git a/android/app/src/main/java/com/xd/vdl/core/download/MediaStoreExporter.kt b/android/app/src/main/java/com/xd/vdl/core/download/MediaStoreExporter.kt
+index a3c4817..e625fa3 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/download/MediaStoreExporter.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/download/MediaStoreExporter.kt
+@@ -89,8 +89,10 @@ object MediaStoreExporter {
+                 name,
+             )
+             if (!dir.exists() && !dir.mkdirs()) return null
+-            val dst = File(dir, file.name)
+-            runCatching { file.copyTo(dst, overwrite = true) }.onFailure { return null }
++            // 低版本没有 MediaStore 去重：同名压缩包若直接 overwrite=true，
++            // 重复下载同一车号会把上一份成品截断/覆盖。这里改用不重名的目标文件。
++            val dst = uniqueFile(dir, file.name)
++            runCatching { file.copyTo(dst, overwrite = false) }.onFailure { return null }
+             // 不能回 file://：targetSdk 24 起把它塞进跨应用 Intent 会抛
+             // FileUriExposedException（Android 7~9 上「打开」按钮因此静默失效）。
+             // 走 FileProvider，路径映射见 res/xml/file_paths.xml 的 public_downloads。
+@@ -123,6 +125,20 @@ object MediaStoreExporter {
+     private inline fun subDir(context: Context, get: (Context) -> String): String =
+         get(context).ifEmpty { SaveSettings.DEFAULT_VIDEO }
+ 
++    /** 在 [dir] 里找一个不重名的文件：`a.zip` 已存在时依次试 `a(1).zip`、`a(2).zip`。 */
++    private fun uniqueFile(dir: File, name: String): File {
++        val dot = name.lastIndexOf('.')
++        val base = if (dot > 0) name.substring(0, dot) else name
++        val ext = if (dot > 0) name.substring(dot) else ""
++        var candidate = File(dir, name)
++        var index = 1
++        while (candidate.exists()) {
++            candidate = File(dir, "$base($index)$ext")
++            index++
++        }
++        return candidate
++    }
++
+     /**
+      * insert + 拷贝 + 收尾。Q 以上用 IS_PENDING 标记，写完再置 0 ——
+      * 中途失败则把占位行删掉，避免相册里留下 0 字节的僵尸条目。
+diff --git a/android/app/src/main/java/com/xd/vdl/core/download/Muxer.kt b/android/app/src/main/java/com/xd/vdl/core/download/Muxer.kt
+index d1dbe75..25b3569 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/download/Muxer.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/download/Muxer.kt
+@@ -4,6 +4,8 @@ import android.media.MediaCodec
+ import android.media.MediaExtractor
+ import android.media.MediaFormat
+ import android.media.MediaMuxer
++import kotlinx.coroutines.ensureActive
++import kotlin.coroutines.coroutineContext
+ import java.io.File
+ import java.io.IOException
+ import java.nio.ByteBuffer
+@@ -14,7 +16,7 @@ import java.nio.ByteBuffer
+  */
+ object Muxer {
+ 
+-    fun merge(videoFile: File, audioFile: File, outFile: File) {
++    suspend fun merge(videoFile: File, audioFile: File, outFile: File) {
+         if (outFile.exists()) outFile.delete()
+ 
+         val videoEx = MediaExtractor()
+@@ -61,7 +63,12 @@ object Muxer {
+         }
+     }
+ 
+-    private fun copyTrack(ex: MediaExtractor, muxer: MediaMuxer, trackIndex: Int) {
++    /** MediaExtractor 的 sampleFlags 取值，用来把类型收敛到该范围（Lint WrongConstant）。 */
++    private const val SAMPLE_FLAG_MASK =
++        MediaExtractor.SAMPLE_FLAG_SYNC or MediaExtractor.SAMPLE_FLAG_ENCRYPTED or
++            MediaExtractor.SAMPLE_FLAG_PARTIAL_FRAME
++
++    private suspend fun copyTrack(ex: MediaExtractor, muxer: MediaMuxer, trackIndex: Int) {
+         val buf = ByteBuffer.allocate(1 shl 20)
+         val info = MediaCodec.BufferInfo()
+         while (true) {
+@@ -70,9 +77,12 @@ object Muxer {
+             info.offset = 0
+             info.size = size
+             info.presentationTimeUs = ex.sampleTime
+-            info.flags = ex.sampleFlags
++            info.flags = ex.sampleFlags and SAMPLE_FLAG_MASK
+             muxer.writeSampleData(trackIndex, buf, info)
+             ex.advance()
++            // 取消必须能打断长视频合并：原来是无条件同步循环，用户点取消后
++            // 仍会把整段合并完并写进相册，看起来像「取消无效」。
++            coroutineContext.ensureActive()
+         }
+     }
+ }
+diff --git a/android/app/src/main/java/com/xd/vdl/core/model/VideoInfo.kt b/android/app/src/main/java/com/xd/vdl/core/model/VideoInfo.kt
+index bb8f0d5..6855a17 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/model/VideoInfo.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/model/VideoInfo.kt
+@@ -14,6 +14,16 @@ data class Quality(
+     val sizeBytes: Long = 0L,
+     val urlBackups: List<String> = emptyList(),
+     val audioBackups: List<String> = emptyList(),
++    /**
++     * B 站 durl 的**分段**地址（低清兜底路：长视频会被切成多段 mp4）。
++     *
++     * 这些段是「同一路视频的前后片段」，必须按顺序拼接，**不是**互斥的清晰度。
++     * 原来把每段当成一个独立档位，用户选中后只下到第一段（其余丢失）。
++     * 非分段场景为空，其它平台不受影响。
++     */
++    val segmentUrls: List<String> = emptyList(),
++    /** 与 [segmentUrls] 一一对应的备用地址（同一段的其它 CDN）。 */
++    val segmentBackups: List<List<String>> = emptyList(),
+ ) {
+     val needMerge: Boolean get() = audioUrl.isNotEmpty()
+ 
+diff --git a/android/app/src/main/java/com/xd/vdl/core/net/PreserveLoginCookieInterceptor.kt b/android/app/src/main/java/com/xd/vdl/core/net/PreserveLoginCookieInterceptor.kt
+index 2a3d101..cceaf24 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/net/PreserveLoginCookieInterceptor.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/net/PreserveLoginCookieInterceptor.kt
+@@ -4,15 +4,21 @@ import okhttp3.Interceptor
+ import okhttp3.Response
+ 
+ /** BridgeInterceptor 会用非空 CookieJar 重写 Cookie 头。网络层在其之后合并登录态。
+- * 仅允许同 host 补回原请求凭据，跨域重定向不携带它们。
++ *
++ * ⚠️ 跨域重定向必须**主动剥掉** Cookie：OkHttp 的重定向只移除 Authorization，
++ * 并不移除 Cookie（CookieJar 为空时 BridgeInterceptor 原样保留已有头），
++ * 所以「只比较 host 然后 proceed」等于把登录凭据原样送给重定向目标域。
+  */
+ internal class PreserveLoginCookieInterceptor : Interceptor {
+     override fun intercept(chain: Interceptor.Chain): Response {
+         val original = chain.call().request()
+         val outgoing = chain.request()
+         val explicit = original.header("Cookie").orEmpty()
+-        if (explicit.isEmpty() || original.url.host != outgoing.url.host)
+-            return chain.proceed(outgoing)
++        if (original.url.host != outgoing.url.host) {
++            // 跨域重定向：显式清空，而不是依赖 OkHttp 自动剥离（它只剥 Authorization）。
++            return chain.proceed(outgoing.newBuilder().removeHeader("Cookie").build())
++        }
++        if (explicit.isEmpty()) return chain.proceed(outgoing)
+         val merged = merge(outgoing.header("Cookie").orEmpty(), explicit)
+         return chain.proceed(outgoing.newBuilder().header("Cookie", merged).build())
+     }
+diff --git a/android/app/src/main/java/com/xd/vdl/core/parse/BiliParser.kt b/android/app/src/main/java/com/xd/vdl/core/parse/BiliParser.kt
+index 89dc8ba..859f8b0 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/parse/BiliParser.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/parse/BiliParser.kt
+@@ -21,7 +21,7 @@ import org.json.JSONObject
+  */
+ object BiliParser : Parser {
+ 
+-    private val BV = Regex("(BV[0-9A-Za-z]{10})")
++    internal val BV = Regex("(BV[0-9A-Za-z]{10})")
+     private val AV = Regex("/av(\\d+)", RegexOption.IGNORE_CASE)
+ 
+     private fun qName(id: Int): String = when (id) {
+@@ -118,11 +118,12 @@ object BiliParser : Parser {
+             }
+             val data = view.optJSONObject("data") ?: throw ParseException("视频信息为空")
+             val bvid = data.optString("bvid")
+-            val cid = data.optLong("cid")
+-            val title = data.optString("title").ifEmpty { "B站视频" }
++            val picked = pickPage(finalUrl, data)
++            val cid = picked.cid
++            val title = picked.title
+             val author = data.optJSONObject("owner")?.optString("name").orEmpty()
+             val cover = data.optString("pic")
+-            val durationSec = data.optLong("duration")
++            val durationSec = picked.durationSec
+ 
+             val qualities = fetchQualities(bvid, cid, durationSec)
+             if (qualities.isEmpty()) throw ParseException("没有取到可用播放地址（可能需登录）")
+@@ -137,7 +138,36 @@ object BiliParser : Parser {
+             )
+         }
+ 
+-    private fun fetchQualities(bvid: String, cid: Long, durationSec: Long): List<Quality> {
++    /** 链接里的分 P 序号：查询参数 p=3，缺省或非法值都按第 1 P。 */
++    internal fun pageIndex(url: String): Int =
++        Regex("[?&]p=(\\d+)").find(url)?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
++
++    /** 分 P 选择结果。 */
++    internal data class PickedPage(val cid: Long, val title: String, val durationSec: Long)
++
++    /**
++     * 按链接里的分 P 参数选 P。
++     *
++     * 原来直接读顶层 data.cid（等于第 1 P），用户打开第 3 P 的链接会被静默下成第 1 P；
++     * 标题也不带分 P 名，几个 P 下载后会在同一目录重名。没有 pages 时回退顶层字段。
++     */
++    internal fun pickPage(url: String, data: JSONObject): PickedPage {
++        val pages = data.optJSONArray("pages")
++        val index = pageIndex(url)
++        val page = pages?.optJSONObject((index - 1).coerceAtLeast(0))
++        val cid = page?.optLong("cid")?.takeIf { it > 0 } ?: data.optLong("cid")
++        val base = data.optString("title").ifEmpty { "B站视频" }
++        val part = page?.optString("part").orEmpty()
++        val title = if ((pages?.length() ?: 0) > 1 && part.isNotEmpty()) {
++            "$base P$index $part"
++        } else {
++            base
++        }
++        val duration = page?.optLong("duration")?.takeIf { it > 0 } ?: data.optLong("duration")
++        return PickedPage(cid, title, duration)
++    }
++
++    internal fun fetchQualities(bvid: String, cid: Long, durationSec: Long): List<Quality> {
+         val play = Http.getJson(
+             "https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid" +
+                 "&fnval=4048&fnver=0&fourk=1&qn=127",
+@@ -220,21 +250,36 @@ object BiliParser : Parser {
+                 }
+         }
+ 
+-        // 2) durl：音视频已合并（低清兜底）
++        // 2) durl：音视频已合并（低清兜底）。长视频会被切成多段，
++        //    这些段是「同一路视频的前后片段」，必须拼接成一个文件。
+         if (out.isEmpty()) {
+             val durl = data.optJSONArray("durl")
+-            if (durl != null) {
++            if (durl != null && durl.length() > 0) {
++                val segments = mutableListOf<String>()
++                val backups = mutableListOf<List<String>>()
++                var totalSize = 0L
+                 for (i in 0 until durl.length()) {
+                     val d = durl.optJSONObject(i) ?: continue
+                     val cands = durlUrls(d)
+                     val u = cands.firstOrNull().orEmpty()
+                     if (u.isEmpty()) continue
++                    segments.add(u)
++                    backups.add(if (cands.size > 1) cands.drop(1) else emptyList())
++                    totalSize += d.optLong("size")
++                }
++                if (segments.isNotEmpty()) {
+                     out.add(
+                         Quality(
+-                            label = "第 ${d.optInt("order", i + 1)} 段 · 已合并",
+-                            url = u,
+-                            sizeBytes = d.optLong("size"),
+-                            urlBackups = if (cands.size > 1) cands.drop(1) else emptyList(),
++                            label = if (segments.size > 1) {
++                                "已合并 · ${segments.size} 段"
++                            } else {
++                                "已合并"
++                            },
++                            url = segments.first(),
++                            sizeBytes = totalSize,
++                            urlBackups = backups.first(),
++                            segmentUrls = segments,
++                            segmentBackups = backups,
+                         )
+                     )
+                 }
+diff --git a/android/app/src/main/java/com/xd/vdl/core/parse/JmClient.kt b/android/app/src/main/java/com/xd/vdl/core/parse/JmClient.kt
+index dbcb279..bd7fa81 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/parse/JmClient.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/parse/JmClient.kt
+@@ -64,9 +64,11 @@ object JmClient {
+ 
+     /**
+      * 禁漫接口是自签名/非常规证书，官方 App 与 Python 版 jmcomic（`verify=False`）
+-     * 都不校验。这里同样放行，否则真机上大概率连不上。
++     * 都不校验证书链。这里保留同样的放宽，否则真机上大概率连不上。
+      *
+-     * 只在禁漫自己的 client 上放宽，不影响其它平台（各平台有自己的 client）。
++     * ⚠️ 但**主机名必须落在禁漫自己的域名白名单内**。原实现是 `HostnameVerifier { _, _ -> true }`，
++     * 等于「任何域名 + 任何证书都接受」：一旦服务端返回的 download_url / 图片地址被篡改成
++     * 外域，中间人就能无成本地截获内容。现在把范围收回到禁漫域名。
+      */
+     private val x509: X509TrustManager = object : X509TrustManager {
+         override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
+@@ -74,7 +76,12 @@ object JmClient {
+         override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+     }
+ 
+-    private val hostnameVerifier = HostnameVerifier { _, _ -> true }
++    private val hostnameVerifier = HostnameVerifier { hostname, _ ->
++        // 证书链仍放宽（站点现实如此），但不再无条件接受任意主机名。
++        val ok = isJmCredentialHost("https://$hostname/")
++        if (!ok) AppLog.w("禁漫请求拒绝非禁漫域名的主机名：$hostname")
++        ok
++    }
+ 
+     private val client: OkHttpClient by lazy {
+         val ctx = SSLContext.getInstance("TLS")
+@@ -156,7 +163,7 @@ object JmClient {
+             try {
+                 val b = Request.Builder().url(url)
+                 headers.forEach { (k, v) -> b.header(k, v) }
+-                applyAuth(b)
++                applyAuth(b, url)
+                 val r = client.newCall(b.build()).execute()
+                 val body = r.use { it.body?.string().orEmpty() }
+                 if (!r.isSuccessful) {
+@@ -185,7 +192,7 @@ object JmClient {
+                     lastErr = "接口无 data（可能本子不存在）"
+                     throw IOException(lastErr)
+                 }
+-                liveDomain = dom
++                liveDomain = dom // 记录可用域名
+                 return decrypt(data, ts, secret) to ts
+             } catch (e: Exception) {
+                 if (e is ParseException) throw e
+@@ -238,13 +245,30 @@ object JmClient {
+      * 官方 App 就是这么发的：`Token` / `Tokenparam` 之外，再带
+      * `Authorization: Bearer <jwttoken>` 与 `Cookie: AVS=<s>`，两个都来自 `/login`。
+      */
+-    private fun applyAuth(b: Request.Builder) {
++    private fun applyAuth(b: Request.Builder, url: String) {
++        // 凭据只发给禁漫自己的域名。原来无条件加 Cookie/Authorization，
++        // 而下载地址与图片地址都来自服务端返回（download_url / 图片 CDN），
++        // 一旦返回被篡改或指向外域，AVS 与 JWT 就会被整包送出。
++        if (!isJmCredentialHost(url)) {
++            AppLog.w("禁漫凭据不发送到非禁漫域名：${hostOf(url)}")
++            return
++        }
+         val ck = sanitize(cookieHeader())
+         if (ck.isNotEmpty()) b.header("Cookie", ck)
+         val jwt = sanitize(JmSession.jwt)
+         if (jwt.isNotEmpty()) b.header("Authorization", "Bearer $jwt")
+     }
+ 
++    /** 该 URL 是否属于禁漫自有域名（接口域 / 图片 CDN / 下载域）。 */
++    internal fun isJmCredentialHost(url: String): Boolean {
++        val host = hostOf(url)
++        if (host.isEmpty()) return false
++        return CREDENTIAL_HOST_SUFFIXES.any { host == it || host.endsWith(".$it") }
++    }
++
++    private fun hostOf(url: String): String =
++        runCatching { java.net.URI(url).host.orEmpty().lowercase() }.getOrDefault("")
++
+     // ------------------------------------------------------------------ //
+     // 登录
+     // ------------------------------------------------------------------ //
+@@ -428,6 +452,12 @@ object JmClient {
+         "cdn-msp3.jmapinodeudzn.net",
+     )
+ 
++    /** 允许携带禁漫凭据的域名后缀（接口域 + 图片 CDN + 下载域）。 */
++    private val CREDENTIAL_HOST_SUFFIXES = listOf(
++        "cdnhjk.net", "cdngwc.cc", "cdngwc.net", "cdngwc.club",
++        "jmapiproxy1.cc", "jmapiproxy2.cc", "jmapinodeudzn.net",
++    )
++
+     /** 使用 /chapter 返回的原始文件名，保证请求的页面与切片散列使用的文件名一致。 */
+     internal fun imageUrl(photoId: String, filename: String, domain: String): String =
+         "https://$domain/media/photos/$photoId/$filename"
+@@ -471,7 +501,7 @@ object JmClient {
+         b.header("Accept", "*/*")
+         b.header("X-Requested-With", "com.JMComic3.app")
+         if (withReferer) b.header("Referer", "https://${DOMAINS.first()}/")
+-        applyAuth(b)
++        applyAuth(b, url)
+         client.newCall(b.build()).execute().use { resp ->
+             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
+             val body = resp.body ?: throw IOException("响应为空")
+@@ -536,7 +566,7 @@ object JmClient {
+      */
+     internal fun fetchImage(url: String): ByteArray {
+         val b = Request.Builder().url(url).header("User-Agent", UA_APP)
+-        applyAuth(b)
++        applyAuth(b, url)
+         b.header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
+         b.header("X-Requested-With", "com.JMComic3.app")
+         b.header("Referer", "https://${DOMAINS.first()}/")
+diff --git a/android/app/src/main/java/com/xd/vdl/core/parse/XParser.kt b/android/app/src/main/java/com/xd/vdl/core/parse/XParser.kt
+index 95b822e..540c0bf 100644
+--- a/android/app/src/main/java/com/xd/vdl/core/parse/XParser.kt
++++ b/android/app/src/main/java/com/xd/vdl/core/parse/XParser.kt
+@@ -136,7 +136,13 @@ object XParser : Parser {
+         // 三条链路全挂时优先怀疑网络：X 在境内直连不通，而三条路（两个 HTTP
+         // 域名 + WebView）用的是同一套网络出口，全挂说明根本没连上，
+         // 而不是接口变了。提示要说清楚，否则用户会去反复换 Cookie。
+-        val allNetwork = reasons.all { NET_ERRORS.any { it.contains(it, true) } }
++        // 注意：内层 lambda 的参数必须另起名字。这里原来写成 `any { it.contains(it, true) }`，
++        // 内层 it 会遮蔽外层的原因字符串，实际执行的是「列表元素是否包含自己」——
++        // 恒为 true，于是「三条链路全挂」时永远被判成网络问题，
++        // 连「Cookie 失效」「推文已删」都会被误导成「请填代理」。
++        val allNetwork = reasons.all { reason ->
++            NET_ERRORS.any { marker -> reason.contains(marker, ignoreCase = true) }
++        }
+         if (allNetwork) {
+             throw ParseException(
+                 "连不上 X 的服务器（$detail）。X 在境内通常需要代理，" +
+@@ -367,7 +373,7 @@ object XParser : Parser {
+     // 公共部分
+     // ------------------------------------------------------------------ //
+ 
+-    private fun buildInfo(status: JSONObject, user: JSONObject?): VideoInfo {
++    internal fun buildInfo(status: JSONObject, user: JSONObject?): VideoInfo {
+         val entities = status.optJSONObject("extended_entities")
+             ?: status.optJSONObject("entities")
+         val media = entities?.optJSONArray("media")
+@@ -401,7 +407,11 @@ object XParser : Parser {
+                     }
+                 }
+                 qualities = toQualities(mp4, durationMs)
+-                break                      // 单视频推文是绝大多数场景，找到就停
++                // 视频优先：VideoInfo.isImage 只看 images 是否为空，
++                // 若此处保留前面收集的图片，混合推文会被路由到「图集」分支，
++                // 结果是视频被整个丢掉（只下图片）。所以拿到视频后清空图片。
++                images.clear()
++                break
+             }
+             if (url.isNotEmpty()) images.add(url)
+         }
+diff --git a/android/app/src/main/java/com/xd/vdl/ui/RemoteImage.kt b/android/app/src/main/java/com/xd/vdl/ui/RemoteImage.kt
+index 08885c1..22f8181 100644
+--- a/android/app/src/main/java/com/xd/vdl/ui/RemoteImage.kt
++++ b/android/app/src/main/java/com/xd/vdl/ui/RemoteImage.kt
+@@ -21,6 +21,30 @@ import com.xd.vdl.core.parse.JmClient
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.withContext
+ 
++/** 封面内存上限：超过就放弃（封面只是缩略图，不值得为它冒 OOM 风险）。 */
++private const val MAX_COVER_BYTES = 12L * 1024 * 1024
++
++/** 封面最长边上限（像素）。 */
++private const val COVER_MAX_EDGE = 1080
++
++/**
++ * 采样解码：先读图片头拿原始尺寸，再按目标边长算 inSampleSize。
++ *
++ * 原来直接 decodeByteArray 全尺寸解码 —— 一张 4000×3000 的封面解出来就是
++ * 48 MB（ARGB_8888），列表里几张就能把内存顶爆。
++ */
++internal fun decodeSampled(bytes: ByteArray, maxEdge: Int): android.graphics.Bitmap? {
++    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
++    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
++    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
++    var sample = 1
++    while (bounds.outWidth / (sample * 2) >= maxEdge || bounds.outHeight / (sample * 2) >= maxEdge) {
++        sample *= 2
++    }
++    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
++    return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
++}
++
+ /** 极简远程图片加载（避免为一个封面引入 Coil 依赖） */
+ @Composable
+ fun RemoteImage(
+@@ -41,11 +65,14 @@ fun RemoteImage(
+                         .url(url)
+                         .header("User-Agent", Http.UA_DESKTOP)
+                         .build()
+-                    Http.client.newCall(req).execute().use { it.body?.bytes() }
+-                }
+-                bytes?.let {
+-                    BitmapFactory.decodeByteArray(it, 0, it.size)?.asImageBitmap()
++                    Http.client.newCall(req).execute().use { response ->
++                        // 封面不该无限读：超大响应直接放弃，避免把几十 MB 读进内存。
++                        val length = response.body?.contentLength() ?: 0L
++                        if (length > MAX_COVER_BYTES) return@use null
++                        response.body?.bytes()?.takeIf { it.size <= MAX_COVER_BYTES }
++                    }
+                 }
++                bytes?.let { decodeSampled(it, COVER_MAX_EDGE) }?.asImageBitmap()
+             }.getOrNull()
+         }
+     }

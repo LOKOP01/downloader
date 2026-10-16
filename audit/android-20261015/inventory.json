@@ -1,0 +1,695 @@
+[
+  {
+    "path": "android/app/build.gradle.kts",
+    "bytes": 2453,
+    "sha256": "b4bd029e6c5e009db35af489ff277c03d7bc15ffff8762dbf4e6f00537254831",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/proguard-rules.pro",
+    "bytes": 126,
+    "sha256": "d243929c75dd993b5aff80c4fec1ab1be10ffa9e3bf255fb23d2832874949eb0",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/AndroidManifest.xml",
+    "bytes": 2386,
+    "sha256": "7e5235c03c7cc112db92e4d42bbd7053df7dc2dc768b824e21db8887ea51df3c",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/AppLog.kt",
+    "bytes": 2223,
+    "sha256": "f00e284b78ca4c4f5e9e1a2925c01859e9bc04a01701a21089ddad0dadce4d92",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/ClipDetect.kt",
+    "bytes": 1761,
+    "sha256": "d2ab08a64c0b3e1a1c66270a7affebdce052ccfd0c56f0c4a549bdd496dba397",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/download/Downloader.kt",
+    "bytes": 3888,
+    "sha256": "b42566a222f410fd24bd11fbf49bc8ec8a77a4d9120a757e130fab34ea4fd9c5",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/download/JmDownloader.kt",
+    "bytes": 20464,
+    "sha256": "877ffbadaaef33ecd1ea4fb1e86ef9abce4923c0b088e94f3a80b07d58df118f",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/download/JmDownloadMode.kt",
+    "bytes": 1663,
+    "sha256": "f501d6c2b3febc77f482cc4c802509c3833c3a6518dfe25b27c4d3ae4b6cef23",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/download/MediaStoreExporter.kt",
+    "bytes": 6848,
+    "sha256": "8cf04564e4e7a1ac837ff3d42b0caa856edc36a37b3e93ca340d0464df532531",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/download/Muxer.kt",
+    "bytes": 2774,
+    "sha256": "edfb45cc7e6139c6c529d4bf722e1121b15bf57c53ad574632383a66855ef891",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/download/Pipeline.kt",
+    "bytes": 1679,
+    "sha256": "774d93b99874cc252998ed27999aef7de20822e7d8996d09df608390c1b4e282",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/DownloadManager.kt",
+    "bytes": 13735,
+    "sha256": "824ecdf3ee054ff493b2677249793981847448fd64486bde705312aa343e8946",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/DownloadService.kt",
+    "bytes": 1961,
+    "sha256": "b8935bd10ddb0e0786830c5e403d76c15a504c015cd3b0cb4581dd8ad48ee90a",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/DownloadTask.kt",
+    "bytes": 1406,
+    "sha256": "0719025d415e358af6a8c2ff3c2ad0e83801a78ee850a0648c46559abdb0ffee",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/FileName.kt",
+    "bytes": 581,
+    "sha256": "d6aa2b81223aae699ce59e026fa2d46c1950b3a4695ac3ab3bcee70c787b2820",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/MediaKind.kt",
+    "bytes": 4332,
+    "sha256": "acd72b4971fd0a5c5db3e0c083062d78cc5c5bb8c88d02229b6e1c8130c922cb",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/model/QualityFilter.kt",
+    "bytes": 2848,
+    "sha256": "0fddc374ac634983fbaf014969b6751ed59b15628e7c326da38db7bf3547a6b9",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/model/VideoInfo.kt",
+    "bytes": 2491,
+    "sha256": "b235fffde670525eaf7c7b481965ff91398668d939e95dad3241c9777cd52836",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/net/BiliWebLogin.kt",
+    "bytes": 1703,
+    "sha256": "5f8d71d9153569adb49fd9fa2df4260ddef38e5b92906ca280110d17e3aaeb82",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/net/CookieStore.kt",
+    "bytes": 12634,
+    "sha256": "fb79d4e4b279aeb138965d2ff11c7af0aae8148bf1a14f7fe6a7d104889f70d2",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/net/Http.kt",
+    "bytes": 13746,
+    "sha256": "401e164716c8a9ccf33e1c4e0aba692cb3cf1fa7ecca46f352bdc33d50dcaf0f",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/net/PreserveLoginCookieInterceptor.kt",
+    "bytes": 1356,
+    "sha256": "549d36ec4e925f6294d6f34aa66efb4ad493aa57c1bd0fda082243422fe581ec",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/net/ProxySettings.kt",
+    "bytes": 5880,
+    "sha256": "5fdd7d73472cd4db2dd6cd599168859c35fd7617bde6ece36a3432fc40557428",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/net/WebViewProxy.kt",
+    "bytes": 3979,
+    "sha256": "335e37109db503654ef7ae70d1b85316fb92e30eaf38035fae5e7a1a0844670f",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/Notifications.kt",
+    "bytes": 1417,
+    "sha256": "86142c211ef96fbe6c2f4b406bb9c9e32395f2e794dbb04415fa9fc3f0be7af7",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/BiliParser.kt",
+    "bytes": 10683,
+    "sha256": "7c6245c716dd33235483db4bcee5e0e4055ef60fb31db98c6f2fbb0e11e489dc",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/DouyinParser.kt",
+    "bytes": 22103,
+    "sha256": "7c54b6e31d1d71e97c362eeaddda509c7a384a019887d6f7500438078ae7e7c0",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/InstagramParser.kt",
+    "bytes": 8574,
+    "sha256": "4d4d28671c74a344588611ae84057ff58e4c1f576c1a92af823dfdc1f69f639c",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/JmAlbumZip.kt",
+    "bytes": 2585,
+    "sha256": "a052fcb73d4992305b11157966a5d65e6dfb77e36a8afca777d9330ab99edfcf",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/JmClient.kt",
+    "bytes": 25316,
+    "sha256": "ef1e2c547baaa650da3e2157de1eeacf98354e1ef6aa88f2b4193e37d27c5bc7",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/JmParser.kt",
+    "bytes": 9053,
+    "sha256": "3a07a95b8ba91b9c517f2f99421aaad167931d1dbb29f2c672b37e0e32212639",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/JmScramble.kt",
+    "bytes": 3830,
+    "sha256": "b5ef47069c696e899bb1c0bba61d6aa8ae214623160c7b75f34438cace755e18",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/JmSession.kt",
+    "bytes": 3563,
+    "sha256": "c81d1e67b0fb1ac823c419ed4b782ed17d6183f57af8483d6ce18344d94ae720",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/Parser.kt",
+    "bytes": 2099,
+    "sha256": "09669cc0132a745104c93b6171bcc6fa9a49b073f0260b268a426b27ea616629",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/WebViewBridge.kt",
+    "bytes": 32965,
+    "sha256": "ec6175ac14a8f6ef6327cd1107e5d1ceb24519599c491a9e453621d471b01030",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/XiaohongshuParser.kt",
+    "bytes": 6208,
+    "sha256": "45e62ef905a634626f09d155fcb3ce690363ea5c104e415d92967e195b1b7af4",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/parse/XParser.kt",
+    "bytes": 21397,
+    "sha256": "7adbaf2d14e3a29e9cbe5a5de86406a2fbb3c622c0f30f8ae8f040934ed51a2b",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/Platform.kt",
+    "bytes": 3641,
+    "sha256": "98e4f93855c809cc1105611fa5740c80155d11eaa6b6e9635a663f35977cf15d",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/core/SaveSettings.kt",
+    "bytes": 5290,
+    "sha256": "2a9ae5c1eb1e6dfe3a9d81e0ae2beff7ef2a6eaaa9ca0badbd3fb48d701e1e1e",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/MainActivity.kt",
+    "bytes": 10091,
+    "sha256": "cb863cbe471b7759754aa5d2e9f3201ee06bb2907771c4a86a64bf88f4073da7",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/AppViewModel.kt",
+    "bytes": 6148,
+    "sha256": "45d563b4ad8fa15d007267256012c4994bac16d73a944229374ed2fae40cabd6",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/BeforeDownloadDialog.kt",
+    "bytes": 12994,
+    "sha256": "14aeb6265988e4c173ad1059291bf42ba96356f90d5f1ca0b6274ba97c6a9c26",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/BiliWebLoginDialog.kt",
+    "bytes": 7574,
+    "sha256": "a208e2abfffc5711b405798e92f0550bd55eabfb012c6f94b2486b4acb3c6aa5",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/component/GkUi.kt",
+    "bytes": 5499,
+    "sha256": "c56d09e94b2b73ab110087105c771519776c821bacdfd26fea8dcdb963eaf3ad",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/HomeScreen.kt",
+    "bytes": 13857,
+    "sha256": "0bc185354463da2240ca2afd39fd5bec6f69803e28ebe5349cedbc919fa4155c",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/PreviewDialog.kt",
+    "bytes": 25319,
+    "sha256": "e7f9046ccc10b472ef43008fae0d08db66498009c144aa4899af768aaada5635",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/RemoteImage.kt",
+    "bytes": 2345,
+    "sha256": "108ffa6fa02e2d13c52efb0570323c82a87a2706c6d99d3646c0bfe5aa418766",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/SettingsScreen.kt",
+    "bytes": 36433,
+    "sha256": "28930513bef403b2357f2b706343e65eeb9e65d8c1824ae50cf5129c3ed4b291",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/TasksScreen.kt",
+    "bytes": 13399,
+    "sha256": "17f7978c0e5e338410fb02d9f9315b6af521198344bdf3ca0053664a56d16f31",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/java/com/xd/vdl/ui/theme/Theme.kt",
+    "bytes": 2309,
+    "sha256": "4fcb544ae593fdac662b86f68bf1a6ae12cd4cd01a9d7212c8e31ba46c026f0d",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/drawable/ic_launcher_v2_foreground.xml",
+    "bytes": 922,
+    "sha256": "87b049134088cb3577059c9197773343fc0b85cc406c58989405cf3fe8d9ff4e",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/drawable/ic_launcher_vec.xml",
+    "bytes": 494,
+    "sha256": "966763490dcb03e116982c002501236666aaefddbed2891d2f323aa7f9fd7538",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_v2.xml",
+    "bytes": 276,
+    "sha256": "119cf0bd107a70018e95b03b5dbf97ce9c20c4d346f5e91fb5ea75387f2af0d2",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_v2_round.xml",
+    "bytes": 276,
+    "sha256": "119cf0bd107a70018e95b03b5dbf97ce9c20c4d346f5e91fb5ea75387f2af0d2",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-anydpi-v33/ic_launcher_v2.xml",
+    "bytes": 351,
+    "sha256": "4335d21cd80c8fc20ed61bff5b06167ea29f38c832edd830418ac27cba649890",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-anydpi-v33/ic_launcher_v2_round.xml",
+    "bytes": 351,
+    "sha256": "4335d21cd80c8fc20ed61bff5b06167ea29f38c832edd830418ac27cba649890",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher.png",
+    "bytes": 6211,
+    "sha256": "a44f9935bd8d498c95037824067da6d14db212de15afa8841af76b87bdff5bec",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher_round.png",
+    "bytes": 6211,
+    "sha256": "a44f9935bd8d498c95037824067da6d14db212de15afa8841af76b87bdff5bec",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher_v2.png",
+    "bytes": 2973,
+    "sha256": "bd9e507e0bff6b71610f64fe056162d8bb137cc4318ef9ae25517574648c1388",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-hdpi/ic_launcher_v2_round.png",
+    "bytes": 4100,
+    "sha256": "ef4c1e26d4fe286b47b3478a86749db0a3810511a75297b66f24c58c95854d39",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher.png",
+    "bytes": 3495,
+    "sha256": "e732495cb3bcd9613d32b7eaa78081b6b448a02e5d472356b10c717ba001209e",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher_round.png",
+    "bytes": 3495,
+    "sha256": "e732495cb3bcd9613d32b7eaa78081b6b448a02e5d472356b10c717ba001209e",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher_v2.png",
+    "bytes": 2105,
+    "sha256": "6b709db48ebcab7344e20335c151d5d02dd647713654b4d9d67cf1d0dd1462ef",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-mdpi/ic_launcher_v2_round.png",
+    "bytes": 2757,
+    "sha256": "b339a1bdd829a17ba3467f1e75d632567bd375f3b7c17b7024dbdf5de647ec2f",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+    "bytes": 9301,
+    "sha256": "419bb557fc2e889bf9c4730f1a408fc52bff2baffcb3602a57f600ce72103dc9",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.png",
+    "bytes": 9301,
+    "sha256": "419bb557fc2e889bf9c4730f1a408fc52bff2baffcb3602a57f600ce72103dc9",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_v2.png",
+    "bytes": 4040,
+    "sha256": "4f9c05c517fc406714a5972c6cfcec629235b22de9c573b4156956e25bf53efd",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xhdpi/ic_launcher_v2_round.png",
+    "bytes": 5551,
+    "sha256": "3f6e99651e1e07a2dbeee4badbc1652ac7c1843170c34657838b77c27e8bb255",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+    "bytes": 16053,
+    "sha256": "78dadb760be7ef7a7ba57aa0ebdfeb8d8ae9624d1b959bcb2bc4a1fffadb4eed",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png",
+    "bytes": 16053,
+    "sha256": "78dadb760be7ef7a7ba57aa0ebdfeb8d8ae9624d1b959bcb2bc4a1fffadb4eed",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_v2.png",
+    "bytes": 6118,
+    "sha256": "d26db0da86e465b77f9c00463172369d8d66a97671c3802884638690d92ae25f",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher_v2_round.png",
+    "bytes": 8666,
+    "sha256": "51d485ae7f0e4a2124e527fd66a3a665ffb26842a536ce7512f338629087eb7d",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+    "bytes": 24148,
+    "sha256": "e5ce75b3a11bfbe1fbdab0be6d5723dc0455ba77056be915ee03d514d4675974",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png",
+    "bytes": 24148,
+    "sha256": "e5ce75b3a11bfbe1fbdab0be6d5723dc0455ba77056be915ee03d514d4675974",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_v2.png",
+    "bytes": 7873,
+    "sha256": "0cc92056a7fc74b6b4c7d79afadea26b2fff5f9730ccefe564590fe39f289453",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_v2_round.png",
+    "bytes": 11237,
+    "sha256": "c460758b2f4079552576c3141f6221e56501c42013c178b5377205cd11df2e5f",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/values/icon_v2_colors.xml",
+    "bytes": 123,
+    "sha256": "48aec618507f3fc622b4f5433d05e0e524b29265be7d1f644da307e0ad8c685b",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/values/strings.xml",
+    "bytes": 78,
+    "sha256": "ec562b16cb0e17ea73e9b52a7f428c3de06b6ad0b634a259c3c1c65e1b556796",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/values/themes.xml",
+    "bytes": 209,
+    "sha256": "5366c43ced4b1c8ff9428130fca2521927fd107b7f2044ffb2ae862724466443",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/main/res/xml/file_paths.xml",
+    "bytes": 673,
+    "sha256": "c06485c79d8a3d15b1d904097dce51aad7288ce8aa68b941ab1c2861008c6d86",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/DouyinNoteRoutingTest.kt",
+    "bytes": 1229,
+    "sha256": "89afe427beee9cfbf651eac35a0161ed4424693b8c83ba786c8cd7589638bcb9",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/download/DownloaderIntegrityTest.kt",
+    "bytes": 1912,
+    "sha256": "e8065a9c9c4e0bbb23970798aeef5e5eb279008d0a9abb78d25a13abe23cce45",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/download/JmConcurrencyTest.kt",
+    "bytes": 2514,
+    "sha256": "a19a9eb53051a55c6cf4858b50127e6ef76fd72f68c558006649afeb66b8f2d5",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/download/JmOfficialZipCheckTest.kt",
+    "bytes": 1857,
+    "sha256": "d50534f827111c87a0899229e019bbcf1360d272f9b42f5f7db8b11736b4b648",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/download/PipelineOrderedTest.kt",
+    "bytes": 4214,
+    "sha256": "4e7245a73c8a6147c11a9a521aaeee2c512f851ace4e8f0b4e8ebcbc55b6de00",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/net/BiliWebLoginTest.kt",
+    "bytes": 1741,
+    "sha256": "d0da5ca9f8026b7f57a2f02dfc35a5bebf8f5845da2b9c0430b433f1f70e359d",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/net/CookieHeaderPreservationTest.kt",
+    "bytes": 2398,
+    "sha256": "151adcc2bd8669f3c06c16932f506d4a61182d7f3c4ada8a0ad2db741c12bc38",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/parse/DouyinHookInjectionTest.kt",
+    "bytes": 5716,
+    "sha256": "4431981834c80ba1d8b9aebb050848d03585985c3f688e897cddf1c1e0d62ea8",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/parse/JmAlbumZipTest.kt",
+    "bytes": 2887,
+    "sha256": "7f8748a8e8262323de83f42ad2c0dad1e6c7f75631acd64322c31576d4fc7a76",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/parse/JmLoginResultTest.kt",
+    "bytes": 3495,
+    "sha256": "424711dac71565e41607bc4dbf4495377a6f1b9f6a6b90757e7c1fb1283ffcc0",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/core/ShareLinkRoutingTest.kt",
+    "bytes": 1387,
+    "sha256": "38d9ad7f1fece5e67f9d335b43130ea53bd6d62876017337ec1bb8cc7e3bb0fd",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/app/src/test/java/com/xd/vdl/ui/ZoomStateTest.kt",
+    "bytes": 2398,
+    "sha256": "31602a5bf19075f6af9c3d65260ce0da442936fdb885d49c6279c80ee7e0a8c7",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/build.gradle.kts",
+    "bytes": 217,
+    "sha256": "5908e3771f4a24621b90aab83b32df487616d4bcc50e687fa593dafec0a6affc",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/gradle/wrapper/gradle-wrapper.jar",
+    "bytes": 43453,
+    "sha256": "cb0da6751c2b753a16ac168bb354870ebb1e162e9083f116729cec9c781156b8",
+    "kind": "binary",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/gradle/wrapper/gradle-wrapper.properties",
+    "bytes": 250,
+    "sha256": "712d9bc912d4b0d42b0faf8c6afeed13ae31ced75ca28463b1dfc4ced1a4bc9a",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/gradle.properties",
+    "bytes": 185,
+    "sha256": "b5948d2cae56b10f0556660fca9477e8a1750ccc86b39c8780aafcb1e63f5691",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/gradlew",
+    "bytes": 8692,
+    "sha256": "fc977a94723af68aaffa4e5d60496fb4aeed1884b6b19e5e2f2fd7612673313d",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/gradlew.bat",
+    "bytes": 2918,
+    "sha256": "bdecf875b6868cbcbd36a1f85eedf0832f358ff28092c5797ed645f7edce77d9",
+    "kind": "text",
+    "audit_status": "pending"
+  },
+  {
+    "path": "android/settings.gradle.kts",
+    "bytes": 642,
+    "sha256": "b2d064fdb390f52762133f9874babd348dade302e8103570b355421092bf3064",
+    "kind": "text",
+    "audit_status": "pending"
+  }
+]
