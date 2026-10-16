@@ -53,6 +53,130 @@ HEADERS = {
 }
 
 
+# 一个下载任务会用到的全部落点后缀（空串表示最终文件自身）。
+# 与 DownloadManager.TEMP_SUFFIXES 语义一致，但必须模块级可用，
+# 因为 prepare_target_path 在类定义之前就要用到它。
+TEMP_PATH_SUFFIXES = ("", ".part", ".vpart", ".apart", ".mpart",
+                      ".part.meta", ".vpart.meta", ".apart.meta",
+                      ".mpart.meta")
+
+
+def prepare_target_path(save_path: str) -> str:
+    """把目标路径归一化，并确保它的父目录存在、可写。
+
+    返回归一化后的绝对路径。
+
+    为什么必须单独做这件事：
+
+      1. **父目录不存在**时直接 open() 抛 FileNotFoundError，错误信息里只有
+         一个路径，用户看不出是「目录没建出来」；
+      2. **目标位置已经有个同名目录**时，Windows 上 open(path, "wb") 抛的是
+         PermissionError: [Errno 13] Permission denied —— 与真正的「没权限」
+         完全同一个错误码。实测（在可写目录里预先建一个 x.mp4.part 目录）复现
+         的就是这条报错。原实现把这个异常原样抛给用户，于是「位置被目录占用」
+         被误读成「目录没权限」，改权限、换目录都不解决问题；
+      3. 混合分隔符（F:/a\\b）在 Windows/Python 下本身可用，不是根因；
+         但归一化后日志、去重、路径比较都更可靠。
+
+    因此这里分情况给出**可操作**的错误，而不是让底层 OSError 裸奔。
+    """
+    path = os.path.abspath(os.path.normpath(save_path))
+    parent = os.path.dirname(path)
+
+    # 父目录：不存在就建（用户选盘符根目录时 parent 就是 F:\\，已存在，跳过）
+    if parent and not os.path.isdir(parent):
+        try:
+            os.makedirs(parent, exist_ok=True)
+        except OSError as e:
+            raise PermissionError(
+                "无法创建下载目录：" + parent + "\\n"
+                "原因：" + (e.strerror or str(e)) + "\\n"
+                "请换一个可写的目录，或在系统里给该路径授予写权限。") from e
+
+    # 目标位置被同名目录占用：这是 Errno 13 最常见的真实成因，必须单独说清楚
+    # 目标位置被同名目录占用：这是 Errno 13 最常见的真实成因，必须单独说清楚。
+    # 临时文件位置也要一起查：用户报错那次最终文件还不存在，是 .part 那个
+    # 位置躺着一个同名目录 —— 只查 save_path 会漏掉它，要等 open(.part)
+    # 才抛出含义模糊的 Errno 13。
+    for suffix in TEMP_PATH_SUFFIXES:
+        probe = path + suffix
+        if os.path.isdir(probe):
+            raise IsADirectoryError(
+                "下载路径被同名文件夹占用：" + probe + "\n"
+                "请删除或重命名该文件夹后重试（它不是本程序创建的下载文件）。")
+
+    # 真正不可写时给明确指引；这里只做探测，不写入任何内容
+    if not os.access(parent, os.W_OK):
+        raise PermissionError(
+            "下载目录不可写：" + parent + "\\n"
+            "请换一个目录，或在系统里给该路径授予写权限。")
+
+    return path
+
+
+def ensure_temp_writable(tmp_path: str) -> None:
+    """分段下载前确认临时文件**能真正被创建**，失败时给出准确原因。
+
+    单独抽出来是为了把「创建失败」与「写入中途失败」区分开：
+    前者是路径/权限问题（换地址重试毫无意义），后者才值得降级单连接。
+    """
+    # Windows 上 open(目录, "ab") 抛的是 PermissionError（不是 IsADirectoryError），
+    # 所以必须先显式判断「这个位置是不是目录」，否则会误报成权限问题。
+    if os.path.isdir(tmp_path):
+        raise IsADirectoryError(
+            "临时文件位置被同名文件夹占用：" + tmp_path + "\\n"
+            "请删除或重命名该文件夹后重试。") from None
+    try:
+        with open(tmp_path, "ab"):
+            pass
+    except IsADirectoryError as e:
+        raise IsADirectoryError(
+            "临时文件位置被同名文件夹占用：" + tmp_path + "\\n"
+            "请删除或重命名该文件夹后重试。") from e
+    except PermissionError as e:
+        raise PermissionError(
+            "没有权限写入临时文件：" + tmp_path + "\\n"
+            "原因：" + (e.strerror or str(e)) + "\\n"
+            "请检查该目录的写权限，或换一个下载目录。") from e
+    except OSError as e:
+        raise OSError(
+            "无法创建临时文件：" + tmp_path + "\\n"
+            "原因：" + (e.strerror or str(e))) from e
+
+
+# 抖音 CDN 直链是**时效签名**：URL 里的 l=YYYYMMDDHHMMSS... 是签发时刻，
+# 过期后服务端对所有镜像统一回 403 Forbidden。
+# 实测：17:29 解析的链接，21:17 重试时 15 个候选地址全部 403 ——
+# 用户只看到「403」，不知道是链接过期，只能反复重试。
+#
+# 这里按签发时刻判断，过期就给出明确指引，不再白跑 15 个地址。
+SIGNED_URL_TTL_SECONDS = 30 * 60      # 抖音签名保守按 30 分钟处理
+
+
+def signed_url_issued_at(url: str) -> float:
+    """从抖音直链里取签发时间戳（l=20261016172945FA19...），失败返回 0。
+
+    只解析 l= 参数：它是 14 位 YYYYMMDDHHMMSS，后面紧跟一串校验字符。
+    """
+    import datetime
+    m = re.search(r"[?&]l=(\d{14})", url or "")
+    if not m:
+        return 0.0
+    try:
+        dt = datetime.datetime.strptime(m.group(1), "%Y%m%d%H%M%S")
+        return dt.timestamp()
+    except ValueError:
+        return 0.0
+
+
+def signed_url_expired(url: str, ttl: int = SIGNED_URL_TTL_SECONDS) -> bool:
+    """链接是否已过期。取不到签发时间时返回 False（不误伤非抖音地址）。"""
+    issued = signed_url_issued_at(url)
+    if issued <= 0:
+        return False
+    return (time.time() - issued) > ttl
+
+
 def headers_for(url: str) -> dict:
     """按目标域名设置正确的 Referer（外站 Referer 会被 CDN 403）"""
     headers = dict(HEADERS)
@@ -225,17 +349,37 @@ class DownloadManager(QObject):
                     self._queue.remove(task_id)
                 self.task_progress.emit(info)
 
-    def retry(self, task_id: str):
+    def retry(self, task_id: str, rebase_to: str = ""):
+        """重试一个失败/已取消的任务。
+
+        `rebase_to` 是**当前**的下载根目录：给了它就把任务重新挂到该目录下，
+        用原文件名。这样用户「改了下载目录再点重试」才会落到新目录 ——
+        否则 save_path 是任务创建时就固定的，永远写回旧目录，
+        表现就是「目录改了但重试还下到老地方」（实测复现于失败任务的批量重试）。
+        """
+        rebase_target = ""
         with self._lock:
             info = self._tasks.get(task_id)
             if (not info or info.status not in self.FINISHED_STATUS
                     or task_id in self._cancel_flags):
                 return
+            if rebase_to:
+                candidate = os.path.join(rebase_to, os.path.basename(info.save_path))
+                # 只有真正换了目录才动 save_path；同目录重试保持原样，
+                # 避免把历史任务的路径语义改掉（图集依赖它定位文件夹）。
+                if os.path.dirname(os.path.abspath(candidate)) != \
+                        os.path.dirname(os.path.abspath(info.save_path)):
+                    # ⚠️ 不能在这里调 _unique_path：它经 _path_in_use 会再取一次
+                    # self._lock，而 threading.Lock 不可重入 → 死锁。
+                    rebase_target = candidate
             info.status = "等待中"
             info.error = ""
             info.downloaded = 0
             info.speed = 0
             self._queue.append(task_id)
+        if rebase_target:
+            info.save_path = self._unique_path(rebase_target)
+            log.info("重试 %s 改为新目录：%s", task_id, info.save_path)
         self.task_progress.emit(info)
         self._pump()
 
@@ -256,19 +400,35 @@ class DownloadManager(QObject):
         with self._lock:
             return [t for t in self._tasks.values() if t.status in statuses]
 
-    def retry_tasks(self, tasks=None):
-        """批量重试；tasks 为空时重试所有失败任务。返回实际重试的任务数"""
+    def retry_tasks(self, tasks=None, rebase_to: str = ""):
+        """批量重试；tasks 为空时重试所有失败任务。返回实际重试的任务数
+
+        `rebase_to` 语义见 [retry]：把任务重新挂到当前下载目录下。
+        """
         with self._lock:
             targets = [t for t in (tasks if tasks is not None
                                    else self._tasks.values())
                        if t.status == "失败" and t.task_id not in self._cancel_flags]
+            pending = []
             for t in targets:
+                if rebase_to:
+                    new_path = os.path.join(rebase_to, os.path.basename(t.save_path))
+                    if os.path.dirname(os.path.abspath(new_path)) != \
+                            os.path.dirname(os.path.abspath(t.save_path)):
+                        # ⚠️ _unique_path 内部会再取一次 self._lock（经 _path_in_use），
+                        # 而 threading.Lock 不可重入 —— 在锁里调用它会直接死锁。
+                        # 这里把待处理的重挂请求收集起来，出了锁再算路径。
+                        pending.append((t, new_path))
                 t.status = "等待中"
                 t.error = ""
                 t.downloaded = 0
                 t.speed = 0
                 self._queue.append(t.task_id)
-            pending = list(targets)
+            retried = list(targets)
+        # 锁外重挂路径：_unique_path/_path_in_use 需要拿锁
+        for t, new_path in (pending if rebase_to else []):
+            t.save_path = self._unique_path(new_path)
+        pending = retried
         for t in pending:
             self.task_progress.emit(t)
         if pending:
@@ -367,9 +527,11 @@ class DownloadManager(QObject):
                     log.warning("下载不完整，重试 %s（地址 %d/%d）：%s",
                                 task_id, idx + 1, len(plan), e)
                     continue
-                except (MissingDependency, ValueError) as e:
-                    # 参数/依赖类错误（如缺 ffmpeg、地址无效）换其他地址也一样，
-                    # 直接判定失败，不要浪费 3 次重试
+                except (MissingDependency, ValueError, SignedUrlExpired) as e:
+                    # 参数/依赖类错误（如缺 ffmpeg、地址无效、链接过期）换其他地址
+                    # 也一样，直接判定失败，不要浪费 3 次重试 + 剩余候选地址。
+                    # 链接过期尤其要在这里拦住：实测 15 个候选地址会全部 403，
+                    # 既浪费时间又让日志里刷满无意义的 403。
                     last_err = str(e)[:200]
                     info.error = last_err
                     log.error("下载失败（不可重试）%s：%s", task_id, e,
@@ -568,6 +730,9 @@ class DownloadManager(QObject):
         重排。连接超时/报错同样重排（有次数上限），所以单条连接的慢与坏都只影响一个小块，
         不会再拖住收尾。
         """
+        # 先确认临时文件真的能创建：失败说明是路径/权限问题，
+        # 换连接、降级单连接都无济于事，必须立刻带着准确原因失败。
+        ensure_temp_writable(tmp_path)
         with open(tmp_path, "wb") as f:
             f.truncate(total)
 
@@ -933,7 +1098,18 @@ class DownloadManager(QObject):
         """
         info.status = "下载中"
         self.task_progress.emit(info)
-        os.makedirs(os.path.dirname(info.save_path), exist_ok=True)
+        # 规范化路径 + 提前暴露「父目录建不出来 / 位置被同名目录占用 / 不可写」，
+        # 避免把 Errno 13 这种含义模糊的底层异常直接抛到界面上。
+        info.save_path = prepare_target_path(info.save_path)
+
+        # ⚠️ 抖音直链是时效签名：过期后**所有**镜像统一回 403。
+        # 实测 17:29 解析、21:17 重试 → 15 个候选地址全部 403，而用户只看到
+        # 一句「403 Forbidden」，完全不知道是链接过期，只能反复点重试。
+        # 这里在下载前先判断，过期就明确说「请重新解析」，别白跑 15 个地址。
+        if signed_url_expired(url):
+            raise SignedUrlExpired(
+                "下载链接已过期（抖音直链是限时签名，通常 30 分钟内有效）。"
+                "请重新粘贴分享链接并解析后再下载。")
 
         def _headers(u):
             h = headers_for(u)
@@ -1027,6 +1203,15 @@ class DownloadManager(QObject):
         self._cleanup_temp_files(info.save_path)
         info.downloaded = info.total or got
         info.status = "已完成"
+
+
+class SignedUrlExpired(Exception):
+    """下载直链的时效签名已过期：换地址/重试都无用，必须重新解析。
+
+    单独一类是为了让调用方**不要**把它当成可重试的网络错误 ——
+    否则会白白跑完所有候选地址（实测 15 个）再失败。
+    """
+    pass
 
 
 class _Cancelled(Exception):

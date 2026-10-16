@@ -299,7 +299,11 @@ class TaskInterface(ScrollArea):
         cancelBtn.clicked.connect(lambda _, tid=info.task_id: self.ctx.manager.cancel(tid))
         retryBtn = TransparentToolButton(FIF.SYNC, actions)
         retryBtn.setToolTip("重试")
-        retryBtn.clicked.connect(lambda _, tid=info.task_id: self.ctx.manager.retry(tid))
+        # 传**当前**下载目录：用户改过目录后重试要落到新目录，
+        # 否则任务沿用创建时的旧 save_path，表现为「改了目录还是下到老地方」。
+        retryBtn.clicked.connect(
+            lambda _, tid=info.task_id: self.ctx.manager.retry(
+                tid, self.ctx.config.get("download_path")))
         openBtn = TransparentToolButton(FIF.FOLDER, actions)
         openBtn.setToolTip("打开所在文件夹")
         openBtn.clicked.connect(
@@ -454,12 +458,20 @@ class TaskInterface(ScrollArea):
         self.read_manga.emit(folder)
 
     def _open_file_location(self, path: str):
-        if path and os.path.isdir(path):
-            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+        """在资源管理器里定位文件；路径不存在时给出可操作提示而不是静默无反应。"""
+        if not path:
+            self._toast("无法打开", "该任务没有记录保存路径", "warning")
             return
-        folder = os.path.dirname(path)
-        if folder:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+        target = path if os.path.isdir(path) else os.path.dirname(path)
+        if not target:
+            self._toast("无法打开", "保存路径无效", "warning")
+            return
+        if not os.path.isdir(target):
+            # 目录被删/被移走是常见情况（用户自己整理过），要说清楚而不是点了没动静
+            self._toast("目录不存在",
+                        f"找不到：{target}\n文件可能已被移动或删除", "warning")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(target))
 
     @staticmethod
     def _related_files(path: str) -> list:
@@ -555,7 +567,9 @@ class TaskInterface(ScrollArea):
         log.info("清空已结束的任务记录 %d 条", count)
 
     def _retry_failed(self):
-        n = self.ctx.manager.retry_tasks()
+        # 同样传当前目录：批量重试失败任务也要跟随用户改过的下载目录
+        n = self.ctx.manager.retry_tasks(
+            rebase_to=self.ctx.config.get("download_path"))
         if n:
             self._toast("重新入队", f"{n} 个失败任务已重新加入队列", "success")
         else:
