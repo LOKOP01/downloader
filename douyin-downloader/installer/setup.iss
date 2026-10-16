@@ -3,7 +3,7 @@
 ; 产物：dist\视频下载器-<version>-setup.exe
 
 #define MyAppName "视频下载器"
-#define MyAppVersion "1.8.10.39"
+#define MyAppVersion "1.8.10.41"
 #define MyAppPublisher "个人项目"
 #define MyAppExeName "视频下载器.exe"
 ; 测试安装可用编译参数指定独立AppId，避免碰用户现有安装/卸载注册信息。
@@ -18,9 +18,9 @@ AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppCopyright=仅供个人学习与备份使用
-VersionInfoVersion=1.8.10.39
+VersionInfoVersion=1.8.10.41
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=1.8.10.39
+VersionInfoProductVersion=1.8.10.41
 VersionInfoDescription={#MyAppName} 安装程序
 VersionInfoCopyright=仅供个人学习与备份使用
 DefaultDirName={localappdata}\Programs\{#MyAppName}
