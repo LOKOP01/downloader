@@ -38,11 +38,28 @@ object ProxySettings {
 
     private var prefs: SharedPreferences? = null
 
-    @Volatile
-    private var cachedUrl: String = ""
+    /**
+     * 已包装过的 client 缓存。
+     *
+     * ⚠️ 键必须含 **base client 身份**（N08）：原来只按代理地址缓存，
+     * 于是「解析用 client（20s/60s）」与「下载用 client（10s/30s）」会互相拿到
+     * 对方那份配置 —— 先访问哪一个，另一个就继承了它的超时。
+     * 现在按 base 分组、组内再按地址缓存。
+     */
+    private val wrapped = java.util.Collections.synchronizedMap(
+        java.util.WeakHashMap<OkHttpClient, MutableMap<String, OkHttpClient>>()
+    )
 
+    /**
+     * 代理配置版本号。每次 [invalidate] 递增。
+     *
+     * 供**自己缓存 OkHttpClient 的模块**（如 JmClient 的 `by lazy`）判断
+     * 是否需要重建：它们拿不到 [Http.invalidateClients] 的通知，
+     * 只看缓存的话，用户改完代理后禁漫仍会一直用旧配置（B-03 的残留缺口）。
+     */
     @Volatile
-    private var cachedClient: OkHttpClient? = null
+    var revision: Int = 0
+        private set
 
     fun init(context: Context) {
         if (prefs == null) {
@@ -64,8 +81,8 @@ object ProxySettings {
     }
 
     fun invalidate() {
-        cachedUrl = ""
-        cachedClient = null
+        synchronized(wrapped) { wrapped.clear() }
+        revision++
     }
 
     /**
@@ -94,10 +111,24 @@ object ProxySettings {
      */
     fun wrap(context: Context, base: OkHttpClient): OkHttpClient {
         init(context)
-        val value = raw(context)
+        return wrapWith(raw(context), base)
+    }
+
+    /**
+     * 用**已初始化**的配置包装任意 client（不需要 Context）。
+     *
+     * 供 [com.xd.vdl.core.parse.JmClient] 这类自己持有 OkHttpClient 的模块使用：
+     * 它们此前完全绕过了应用代理设置（B-03），用户填了代理也走直连。
+     */
+    fun wrapInitialized(base: OkHttpClient): OkHttpClient =
+        wrapWith(prefs?.getString(KEY_PROXY, "").orEmpty(), base)
+
+    private fun wrapWith(value: String, base: OkHttpClient): OkHttpClient {
         if (value.isEmpty()) return base
 
-        cachedClient?.let { if (cachedUrl == value) return it }
+        synchronized(wrapped) {
+            wrapped[base]?.get(value)?.let { return it }
+        }
 
         val parsed = parse(value) ?: return base
         val (url, auth) = parsed
@@ -124,8 +155,9 @@ object ProxySettings {
             })
         }
         val built = b.build()
-        cachedUrl = value
-        cachedClient = built
+        synchronized(wrapped) {
+            wrapped.getOrPut(base) { mutableMapOf() }[value] = built
+        }
         return built
     }
 

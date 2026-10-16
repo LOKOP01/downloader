@@ -73,7 +73,12 @@ class WebViewBridge(private val activity: Activity) {
             loadsImagesAutomatically = false     // 解析期不需要图片，省流量也减少干扰
             blockNetworkImage = true
             mediaPlaybackRequiresUserGesture = false
-            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            // ⚠️ 收紧为「兼容模式」而不是 ALWAYS_ALLOW：
+            // 解析页面（抖音/X）的媒体请求本来就走 shouldInterceptRequest 拦下来，
+            // 不需要放行 HTTPS 页面里的明文子资源；而 ALWAYS_ALLOW 会让页面
+            // 在明文连接上加载任意资源，扩大中间人可篡改的面。
+            // COMPATIBILITY_MODE 仍允许混合内容但按块处理，实测不影响这些站点的解析。
+            mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
             // X 使用系统 WebView 原生移动端标识，避免伪装 PC Chrome。
             if (ua != null) userAgentString = ua
             // 解析只要文档和 XHR，缓存全关：避免旧缓存让拦截迟迟不触发
@@ -220,12 +225,16 @@ class WebViewBridge(private val activity: Activity) {
                             val payload = JSONObject(arr)
                             val n = payload.optInt("n")
                             // 页面被导航顶掉时数组会重建，长度变小 → 从头再读
-                            if (n < picked) picked = 0
+                            if (n < picked) {
+                                picked = 0
+                            }
                             seen = n
                             val items = payload.optJSONArray("i") ?: return@runCatching
                             for (i in 0 until items.length()) {
                                 val item = items.optString(i)
-                                if (item.isBlank()) continue
+                                if (item.isBlank()) {
+                                    continue
+                                }
                                 val obj = runCatching { JSONObject(item) }.getOrNull() ?: continue
                                 val hit = runCatching { pick(obj) }.getOrNull()
                                 if (hit != null) { picked = n; finish(hit); return@runCatching }

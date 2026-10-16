@@ -80,6 +80,17 @@ object JmDownloader {
     private const val CONCURRENCY_RECHECK = 32
 
     /**
+     * 首块的并发与页数。
+     *
+     * 页大小是**跑起来之后**才测得到的，而首块用满 [CONCURRENCY] 时，
+     * 遇到高清扫图会同时解码 8 张全尺寸位图（每路还要一份重排副本），
+     * 预算还没生效就可能先 OOM。所以先用很小的首块把尺寸测出来，
+     * 之后立刻按实测值放宽 —— 代价只有两页的吞吐。
+     */
+    private const val FIRST_BLOCK_CONCURRENCY = 2
+    private const val FIRST_PROBE_PAGES = 2
+
+    /**
      * 按实测平均页大小反推能开几路。
      *
      * `avgBitmapBytes <= 0`（还没测到）时先用满 [CONCURRENCY]。
@@ -206,12 +217,14 @@ object JmDownloader {
                 val domains = JmClient.imageDomains()
                 val stats = BitmapStats()
                 var done = 0
-                var width = CONCURRENCY
+                var width = FIRST_BLOCK_CONCURRENCY
                 var i = 0
+                var firstBlock = true
                 // 分块跑：每块处理后按**实测页大小**重估并发，块内仍严格按页序写包。
                 // 首块先用满 8 路（大多数本子是 3~4 MB/页），遇到高清扫图会自动收窄。
                 while (i < jobs.size) {
-                    val block = jobs.subList(i, minOf(i + CONCURRENCY_RECHECK, jobs.size))
+                    val span = if (firstBlock) FIRST_PROBE_PAGES else CONCURRENCY_RECHECK
+                    val block = jobs.subList(i, minOf(i + span, jobs.size))
                     pipelineOrdered(
                         items = block,
                         concurrency = width,
@@ -232,6 +245,7 @@ object JmDownloader {
                         },
                     )
                     i += block.size
+                    firstBlock = false
                     val next = concurrencyFor(stats.avg())
                     if (next != width) {
                         AppLog.i(

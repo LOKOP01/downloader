@@ -21,7 +21,7 @@ import org.json.JSONObject
  */
 object BiliParser : Parser {
 
-    private val BV = Regex("(BV[0-9A-Za-z]{10})")
+    internal val BV = Regex("(BV[0-9A-Za-z]{10})")
     private val AV = Regex("/av(\\d+)", RegexOption.IGNORE_CASE)
 
     private fun qName(id: Int): String = when (id) {
@@ -118,11 +118,12 @@ object BiliParser : Parser {
             }
             val data = view.optJSONObject("data") ?: throw ParseException("视频信息为空")
             val bvid = data.optString("bvid")
-            val cid = data.optLong("cid")
-            val title = data.optString("title").ifEmpty { "B站视频" }
+            val picked = pickPage(finalUrl, data)
+            val cid = picked.cid
+            val title = picked.title
             val author = data.optJSONObject("owner")?.optString("name").orEmpty()
             val cover = data.optString("pic")
-            val durationSec = data.optLong("duration")
+            val durationSec = picked.durationSec
 
             val qualities = fetchQualities(bvid, cid, durationSec)
             if (qualities.isEmpty()) throw ParseException("没有取到可用播放地址（可能需登录）")
@@ -137,7 +138,36 @@ object BiliParser : Parser {
             )
         }
 
-    private fun fetchQualities(bvid: String, cid: Long, durationSec: Long): List<Quality> {
+    /** 链接里的分 P 序号：查询参数 p=3，缺省或非法值都按第 1 P。 */
+    internal fun pageIndex(url: String): Int =
+        Regex("[?&]p=(\\d+)").find(url)?.groupValues?.get(1)?.toIntOrNull()?.coerceAtLeast(1) ?: 1
+
+    /** 分 P 选择结果。 */
+    internal data class PickedPage(val cid: Long, val title: String, val durationSec: Long)
+
+    /**
+     * 按链接里的分 P 参数选 P。
+     *
+     * 原来直接读顶层 data.cid（等于第 1 P），用户打开第 3 P 的链接会被静默下成第 1 P；
+     * 标题也不带分 P 名，几个 P 下载后会在同一目录重名。没有 pages 时回退顶层字段。
+     */
+    internal fun pickPage(url: String, data: JSONObject): PickedPage {
+        val pages = data.optJSONArray("pages")
+        val index = pageIndex(url)
+        val page = pages?.optJSONObject((index - 1).coerceAtLeast(0))
+        val cid = page?.optLong("cid")?.takeIf { it > 0 } ?: data.optLong("cid")
+        val base = data.optString("title").ifEmpty { "B站视频" }
+        val part = page?.optString("part").orEmpty()
+        val title = if ((pages?.length() ?: 0) > 1 && part.isNotEmpty()) {
+            "$base P$index $part"
+        } else {
+            base
+        }
+        val duration = page?.optLong("duration")?.takeIf { it > 0 } ?: data.optLong("duration")
+        return PickedPage(cid, title, duration)
+    }
+
+    internal fun fetchQualities(bvid: String, cid: Long, durationSec: Long): List<Quality> {
         val play = Http.getJson(
             "https://api.bilibili.com/x/player/playurl?bvid=$bvid&cid=$cid" +
                 "&fnval=4048&fnver=0&fourk=1&qn=127",
@@ -220,21 +250,36 @@ object BiliParser : Parser {
                 }
         }
 
-        // 2) durl：音视频已合并（低清兜底）
+        // 2) durl：音视频已合并（低清兜底）。长视频会被切成多段，
+        //    这些段是「同一路视频的前后片段」，必须拼接成一个文件。
         if (out.isEmpty()) {
             val durl = data.optJSONArray("durl")
-            if (durl != null) {
+            if (durl != null && durl.length() > 0) {
+                val segments = mutableListOf<String>()
+                val backups = mutableListOf<List<String>>()
+                var totalSize = 0L
                 for (i in 0 until durl.length()) {
                     val d = durl.optJSONObject(i) ?: continue
                     val cands = durlUrls(d)
                     val u = cands.firstOrNull().orEmpty()
                     if (u.isEmpty()) continue
+                    segments.add(u)
+                    backups.add(if (cands.size > 1) cands.drop(1) else emptyList())
+                    totalSize += d.optLong("size")
+                }
+                if (segments.isNotEmpty()) {
                     out.add(
                         Quality(
-                            label = "第 ${d.optInt("order", i + 1)} 段 · 已合并",
-                            url = u,
-                            sizeBytes = d.optLong("size"),
-                            urlBackups = if (cands.size > 1) cands.drop(1) else emptyList(),
+                            label = if (segments.size > 1) {
+                                "已合并 · ${segments.size} 段"
+                            } else {
+                                "已合并"
+                            },
+                            url = segments.first(),
+                            sizeBytes = totalSize,
+                            urlBackups = backups.first(),
+                            segmentUrls = segments,
+                            segmentBackups = backups,
                         )
                     )
                 }

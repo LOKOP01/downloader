@@ -46,6 +46,11 @@ import com.xd.vdl.ui.theme.VdlTheme
 
 class MainActivity : ComponentActivity() {
 
+    private companion object {
+        /** 退后台时的落盘等待上限；超过就放弃，宁可少几条日志也不拖住进程 */
+        const val FLUSH_TIMEOUT_MS = 300L
+    }
+
     private val pendingShared = mutableStateOf<String?>(null)
 
     /** 剪切板嗅探：最近一次自动填入的文本，用于去重（同一条不反复填） */
@@ -117,6 +122,26 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         clipboard.removePrimaryClipChangedListener(clipboardListener)
         super.onStop()
+        flushLogsOffMainThread()
+    }
+
+    /**
+     * 退到后台时把异步日志尽量落盘。
+     *
+     * ⚠️ 两条约束：
+     *  1. **不在主线程等**：onStop 里阻塞最多几百毫秒会直接影响切后台的流畅度；
+     *  2. **无积压时零开销**：绝大多数情况队列是空的，[AppLog.hasPending] 为 false
+     *     就直接返回，连线程都不起。
+     *
+     * 注意这只是「降低丢失概率」，不是保证：进程被系统直接 KILL 时不会走任何回调，
+     * 队列里未落盘的部分仍会丢。真要零丢失得改成同步写，代价是主线程 IO —— 不做。
+     */
+    private fun flushLogsOffMainThread() {
+        if (!AppLog.hasPending()) return
+        Thread({
+            val ok = AppLog.flush(FLUSH_TIMEOUT_MS)
+            if (!ok) android.util.Log.w("vdl", "退出前日志未完全落盘（超时）")
+        }, "vdl-log-flush").apply { isDaemon = true }.start()
     }
 
     private fun sniffClipboard(vm: AppViewModel) {

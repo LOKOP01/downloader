@@ -10,8 +10,14 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!--
+        allowBackup 保持开启（普通配置仍应随备份/换机迁移），
+        但凭据类数据用下面的规则显式排除，见 res/xml 两份规则文件的说明。
+    -->
     <application
         android:allowBackup="true"
+        android:fullBackupContent="@xml/backup_rules"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher_v2"
         android:roundIcon="@mipmap/ic_launcher_v2_round"
         android:label="@string/app_name"

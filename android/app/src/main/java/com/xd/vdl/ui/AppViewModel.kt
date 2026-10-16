@@ -10,6 +10,8 @@ import com.xd.vdl.core.model.Quality
 import com.xd.vdl.core.model.VideoInfo
 import com.xd.vdl.core.model.dropdownQualities
 import com.xd.vdl.core.parse.ParserRouter
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,6 +82,18 @@ class AppViewModel : ViewModel() {
         _link.value = ""
     }
 
+    /**
+     * 正在跑的解析任务。
+     *
+     * 原来没有句柄：用户换链接后重新解析，旧任务仍在跑，完成后会把**旧结果**
+     * 覆盖到新页面上（输入是新的、结果是上一个链接的）。这里持有 Job，
+     * 新解析先取消旧的，并配合 [parseToken] 丢弃过期结果。
+     */
+    private var parseJob: Job? = null
+
+    /** 解析请求版本号：只有最新一次的结果才允许写回界面。 */
+    private var parseToken = 0
+
     fun parse(activity: Activity) {
         val text = _link.value.trim()
         if (text.isEmpty()) {
@@ -89,12 +103,17 @@ class AppViewModel : ViewModel() {
         if (_parsing.value) return
         _parsing.value = true
         _info.value = null
-        viewModelScope.launch {
+        val token = ++parseToken
+        parseJob?.cancel()
+        parseJob = viewModelScope.launch {
             try {
                 // 用户多半粘的是整段分享文案，先抠出链接再路由
                 val (url, parser) = ParserRouter.resolve(text)
                 val t0 = System.currentTimeMillis()
                 val result = parser.parse(activity, url)
+                // 期间用户又发起了新解析：这次的结果已经过期，直接丢弃，
+                // 否则旧链接的结果会盖住新页面。
+                if (token != parseToken) return@launch
                 if (!result.isImage && result.qualities.isEmpty()) {
                     _message.value = "没有解析到可下载的地址"
                     AppLog.w("解析失败：没有可下载地址 | $url")
@@ -112,11 +131,18 @@ class AppViewModel : ViewModel() {
                             "画质 ${shown.size} 档（原始 ${result.qualities.size} 档）",
                     )
                 }
+            } catch (e: CancellationException) {
+                // 取消是「用户换了链接 / 页面关了」，不是解析失败。
+                // 原来被下面的 Exception 分支吃掉，界面会弹一句莫名其妙的失败提示。
+                throw e
             } catch (e: Exception) {
-                _message.value = e.message ?: "解析失败"
-                AppLog.e("解析失败：${e.message ?: e.javaClass.simpleName}")
+                if (token == parseToken) {
+                    _message.value = e.message ?: "解析失败"
+                    AppLog.e("解析失败：${e.message ?: e.javaClass.simpleName}")
+                }
             } finally {
-                _parsing.value = false
+                // 只有最新那次才允许把 parsing 复位，否则旧任务收尾会提前放开按钮。
+                if (token == parseToken) _parsing.value = false
             }
         }
     }

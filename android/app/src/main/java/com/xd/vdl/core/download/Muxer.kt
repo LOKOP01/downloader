@@ -4,6 +4,8 @@ import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.coroutineContext
 import java.io.File
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -14,7 +16,7 @@ import java.nio.ByteBuffer
  */
 object Muxer {
 
-    fun merge(videoFile: File, audioFile: File, outFile: File) {
+    suspend fun merge(videoFile: File, audioFile: File, outFile: File) {
         if (outFile.exists()) outFile.delete()
 
         val videoEx = MediaExtractor()
@@ -61,7 +63,7 @@ object Muxer {
         }
     }
 
-    private fun copyTrack(ex: MediaExtractor, muxer: MediaMuxer, trackIndex: Int) {
+    private suspend fun copyTrack(ex: MediaExtractor, muxer: MediaMuxer, trackIndex: Int) {
         val buf = ByteBuffer.allocate(1 shl 20)
         val info = MediaCodec.BufferInfo()
         while (true) {
@@ -70,9 +72,23 @@ object Muxer {
             info.offset = 0
             info.size = size
             info.presentationTimeUs = ex.sampleTime
-            info.flags = ex.sampleFlags
+            // ⚠️ 这里必须做**语义映射**，不能直接把 ex.sampleFlags 赋给 info.flags：
+            //  · MediaMuxer 关心的是「这一帧是不是关键帧」，对应 BUFFER_FLAG_KEY_FRAME；
+            //  · MediaExtractor.SAMPLE_FLAG_SYNC 的数值虽然也是 1，但两者语义不同
+            //    （Lint 会报 WrongConstant）；
+            //  · 而 SAMPLE_FLAG_PARTIAL_FRAME 是 API 26 才有的常量，minSdk 24 直接引用
+            //    会被内联成 API 24 不认识的取值（Lint 报 InlinedApi）。
+            // 只保留关键帧标志，行为对 H.264/AAC（B 站 DASH 的实际格式）完全一致。
+            info.flags = if (ex.sampleFlags and MediaExtractor.SAMPLE_FLAG_SYNC != 0) {
+                MediaCodec.BUFFER_FLAG_KEY_FRAME
+            } else {
+                0
+            }
             muxer.writeSampleData(trackIndex, buf, info)
             ex.advance()
+            // 取消必须能打断长视频合并：原来是无条件同步循环，用户点取消后
+            // 仍会把整段合并完并写进相册，看起来像「取消无效」。
+            coroutineContext.ensureActive()
         }
     }
 }

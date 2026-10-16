@@ -24,6 +24,21 @@ import java.io.File
  */
 object MediaStoreExporter {
 
+    /**
+     * 低版本（API ≤ 28）写公共目录需要 WRITE_EXTERNAL_STORAGE。
+     *
+     * ⚠️ 这是**前置检查**（B-08）：没有权限时 [exportVideo]/[exportImage]/[exportDownload]
+     * 必然失败，而失败发生在「整段下载完成之后」—— 用户白等一场。
+     * 下载开始前先问一次，把失败提前暴露。
+     *
+     * Android 10+ 用 MediaStore 分区存储，不需要该权限，直接返回 true。
+     */
+    fun canWritePublicStorage(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return true
+        return context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
     // ------------------------------------------------------------------ //
     // 视频
     // ------------------------------------------------------------------ //
@@ -89,8 +104,10 @@ object MediaStoreExporter {
                 name,
             )
             if (!dir.exists() && !dir.mkdirs()) return null
-            val dst = File(dir, file.name)
-            runCatching { file.copyTo(dst, overwrite = true) }.onFailure { return null }
+            // 低版本没有 MediaStore 去重：同名压缩包若直接 overwrite=true，
+            // 重复下载同一车号会把上一份成品截断/覆盖。这里改用不重名的目标文件。
+            val dst = uniqueFile(dir, file.name)
+            runCatching { file.copyTo(dst, overwrite = false) }.onFailure { return null }
             // 不能回 file://：targetSdk 24 起把它塞进跨应用 Intent 会抛
             // FileUriExposedException（Android 7~9 上「打开」按钮因此静默失效）。
             // 走 FileProvider，路径映射见 res/xml/file_paths.xml 的 public_downloads。
@@ -122,6 +139,20 @@ object MediaStoreExporter {
      */
     private inline fun subDir(context: Context, get: (Context) -> String): String =
         get(context).ifEmpty { SaveSettings.DEFAULT_VIDEO }
+
+    /** 在 [dir] 里找一个不重名的文件：`a.zip` 已存在时依次试 `a(1).zip`、`a(2).zip`。 */
+    private fun uniqueFile(dir: File, name: String): File {
+        val dot = name.lastIndexOf('.')
+        val base = if (dot > 0) name.substring(0, dot) else name
+        val ext = if (dot > 0) name.substring(dot) else ""
+        var candidate = File(dir, name)
+        var index = 1
+        while (candidate.exists()) {
+            candidate = File(dir, "$base($index)$ext")
+            index++
+        }
+        return candidate
+    }
 
     /**
      * insert + 拷贝 + 收尾。Q 以上用 IS_PENDING 标记，写完再置 0 ——

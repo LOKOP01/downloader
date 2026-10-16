@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 及以下的自动备份规则（android:fullBackupContent）。
+
+  ⚠️ 只排除**凭据类**数据，不关闭备份本身：
+  下载目录设置、禁漫下载方式等普通配置仍会正常备份与迁移。
+
+  被排除的三份 SharedPreferences 都是明文存储的登录凭据：
+    · vdl_cookies     —— 各平台 Cookie（含 sessionid / SESSDATA 等会话密钥）
+    · vdl_jm_session  —— 禁漫 JWT / AVS 与账号名
+    · vdl_net         —— 代理地址，可能带 user:password
+  另外排除 WebView 数据目录：里面的 Cookie 同样是会话凭据。
+
+  Android 12 及以上走 data_extraction_rules.xml（两份规则内容保持一致）。
+-->
+<full-backup-content>
+    <exclude domain="sharedpref" path="vdl_cookies.xml" />
+    <exclude domain="sharedpref" path="vdl_jm_session.xml" />
+    <exclude domain="sharedpref" path="vdl_net.xml" />
+    <exclude domain="root" path="app_webview" />
+</full-backup-content>

@@ -2,6 +2,7 @@ package com.xd.vdl.core.download
 
 import com.xd.vdl.core.Platform
 import com.xd.vdl.core.net.Http
+import com.xd.vdl.core.net.await
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,7 +58,11 @@ object Downloader {
         onProgress: (downloaded: Long, total: Long) -> Unit,
     ) = withContext(Dispatchers.IO) {
         val scope: CoroutineScope = this
-        val resp = Http.downloadClient.newCall(Http.request(url, platform)).execute()
+        // ⚠️ 用可取消的 await 而不是 execute()（B-09）：
+        // 循环体里虽然有 ensureActive，但「建立连接 + 等响应头」这段是阻塞的，
+        // 取消只能等到它自己超时（最长 60s）才生效 —— 用户看到的就是
+        // 「点了取消还在跑」。await() 会在协程取消时立刻 call.cancel()。
+        val resp = Http.downloadClient.newCall(Http.request(url, platform)).await()
         resp.use {
             if (!it.isSuccessful) throw IOException("HTTP ${it.code}")
             val body = it.body ?: throw IOException("响应为空")

@@ -64,9 +64,11 @@ object JmClient {
 
     /**
      * 禁漫接口是自签名/非常规证书，官方 App 与 Python 版 jmcomic（`verify=False`）
-     * 都不校验。这里同样放行，否则真机上大概率连不上。
+     * 都不校验证书链。这里保留同样的放宽，否则真机上大概率连不上。
      *
-     * 只在禁漫自己的 client 上放宽，不影响其它平台（各平台有自己的 client）。
+     * ⚠️ 但**主机名必须落在禁漫自己的域名白名单内**。原实现是 `HostnameVerifier { _, _ -> true }`，
+     * 等于「任何域名 + 任何证书都接受」：一旦服务端返回的 download_url / 图片地址被篡改成
+     * 外域，中间人就能无成本地截获内容。现在把范围收回到禁漫域名。
      */
     private val x509: X509TrustManager = object : X509TrustManager {
         override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) = Unit
@@ -74,9 +76,18 @@ object JmClient {
         override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
     }
 
-    private val hostnameVerifier = HostnameVerifier { _, _ -> true }
+    private val hostnameVerifier = HostnameVerifier { hostname, _ ->
+        // 证书链仍放宽（站点现实如此），但不再无条件接受任意主机名。
+        val ok = isJmCredentialHost("https://$hostname/")
+        if (!ok) AppLog.w("禁漫请求拒绝非禁漫域名的主机名：$hostname")
+        ok
+    }
 
-    private val client: OkHttpClient by lazy {
+    /**
+     * 底层 client（不带代理）。代理变更时要能重建，所以拆成
+     * 「按 revision 缓存的 base」+「每次取用时按当前配置包装」两步。
+     */
+    private val baseClient: OkHttpClient by lazy {
         val ctx = SSLContext.getInstance("TLS")
         ctx.init(null, arrayOf<TrustManager>(x509), java.security.SecureRandom())
         OkHttpClient.Builder()
@@ -88,6 +99,32 @@ object JmClient {
             .hostnameVerifier(hostnameVerifier)
             .build()
     }
+
+    /**
+     * 实际使用的 client：按当前代理配置包装 [baseClient]。
+     *
+     * ⚠️ 这个 client 是自建的，**不会**自动继承 Http 的代理设置（B-03）。
+     * 原来用户在设置里填了代理，禁漫这条链路仍走直连。
+     *
+     * 而且不能只用 `by lazy` 缓存在字段里：那样**首次使用后代理再改也不生效**
+     * （只有重启 App 才会重建）。这里按 [ProxySettings.revision] 判断，
+     * 配置一变就重新包装 —— 代理选择器是轻量对象，重建成本可以忽略。
+     */
+    @Volatile
+    private var cachedWrapped: OkHttpClient? = null
+
+    @Volatile
+    private var wrappedRevision: Int = -1
+
+    private val client: OkHttpClient
+        get() {
+            val rev = com.xd.vdl.core.net.ProxySettings.revision
+            cachedWrapped?.let { if (wrappedRevision == rev) return it }
+            val built = com.xd.vdl.core.net.ProxySettings.wrapInitialized(baseClient)
+            cachedWrapped = built
+            wrappedRevision = rev
+            return built
+        }
 
     // ------------------------------------------------------------------ //
     // 加解密
@@ -102,6 +139,11 @@ object JmClient {
     internal fun decrypt(b64: String, ts: Long, secret: String = SECRET): String {
         val raw = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
         val key = md5Hex("$ts$secret").toByteArray(Charsets.UTF_8)
+        // ⚠️ Lint 的 GetInstance 警告在这里是**误报**：ECB 是禁漫服务端规定的
+        // 响应体加密方式（官方 App 与 Python 版 jmcomic 同样实现），
+        // 客户端只能按协议解密，不能单方面换成 CBC/GCM。
+        // 这里解密的只是「公开接口的响应体」，密钥由时间戳派生，不用于保护本地数据。
+        @Suppress("GetInstance")
         val cipher = Cipher.getInstance("AES/ECB/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(key, "AES"))
         val out = cipher.doFinal(raw)
@@ -156,7 +198,7 @@ object JmClient {
             try {
                 val b = Request.Builder().url(url)
                 headers.forEach { (k, v) -> b.header(k, v) }
-                applyAuth(b)
+                applyAuth(b, url)
                 val r = client.newCall(b.build()).execute()
                 val body = r.use { it.body?.string().orEmpty() }
                 if (!r.isSuccessful) {
@@ -185,7 +227,7 @@ object JmClient {
                     lastErr = "接口无 data（可能本子不存在）"
                     throw IOException(lastErr)
                 }
-                liveDomain = dom
+                liveDomain = dom // 记录可用域名
                 return decrypt(data, ts, secret) to ts
             } catch (e: Exception) {
                 if (e is ParseException) throw e
@@ -238,12 +280,29 @@ object JmClient {
      * 官方 App 就是这么发的：`Token` / `Tokenparam` 之外，再带
      * `Authorization: Bearer <jwttoken>` 与 `Cookie: AVS=<s>`，两个都来自 `/login`。
      */
-    private fun applyAuth(b: Request.Builder) {
+    private fun applyAuth(b: Request.Builder, url: String) {
+        // 凭据只发给禁漫自己的域名。原来无条件加 Cookie/Authorization，
+        // 而下载地址与图片地址都来自服务端返回（download_url / 图片 CDN），
+        // 一旦返回被篡改或指向外域，AVS 与 JWT 就会被整包送出。
+        if (!isJmCredentialHost(url)) {
+            AppLog.w("禁漫凭据不发送到非禁漫域名：${hostOf(url)}")
+            return
+        }
         val ck = sanitize(cookieHeader())
         if (ck.isNotEmpty()) b.header("Cookie", ck)
         val jwt = sanitize(JmSession.jwt)
         if (jwt.isNotEmpty()) b.header("Authorization", "Bearer $jwt")
     }
+
+    /** 该 URL 是否属于禁漫自有域名（接口域 / 图片 CDN / 下载域）。 */
+    internal fun isJmCredentialHost(url: String): Boolean {
+        val host = hostOf(url)
+        if (host.isEmpty()) return false
+        return CREDENTIAL_HOST_SUFFIXES.any { host == it || host.endsWith(".$it") }
+    }
+
+    private fun hostOf(url: String): String =
+        runCatching { java.net.URI(url).host.orEmpty().lowercase() }.getOrDefault("")
 
     // ------------------------------------------------------------------ //
     // 登录
@@ -428,6 +487,12 @@ object JmClient {
         "cdn-msp3.jmapinodeudzn.net",
     )
 
+    /** 允许携带禁漫凭据的域名后缀（接口域 + 图片 CDN + 下载域）。 */
+    private val CREDENTIAL_HOST_SUFFIXES = listOf(
+        "cdnhjk.net", "cdngwc.cc", "cdngwc.net", "cdngwc.club",
+        "jmapiproxy1.cc", "jmapiproxy2.cc", "jmapinodeudzn.net",
+    )
+
     /** 使用 /chapter 返回的原始文件名，保证请求的页面与切片散列使用的文件名一致。 */
     internal fun imageUrl(photoId: String, filename: String, domain: String): String =
         "https://$domain/media/photos/$photoId/$filename"
@@ -471,7 +536,7 @@ object JmClient {
         b.header("Accept", "*/*")
         b.header("X-Requested-With", "com.JMComic3.app")
         if (withReferer) b.header("Referer", "https://${DOMAINS.first()}/")
-        applyAuth(b)
+        applyAuth(b, url)
         client.newCall(b.build()).execute().use { resp ->
             if (!resp.isSuccessful) throw IOException("HTTP ${resp.code}")
             val body = resp.body ?: throw IOException("响应为空")
@@ -536,7 +601,7 @@ object JmClient {
      */
     internal fun fetchImage(url: String): ByteArray {
         val b = Request.Builder().url(url).header("User-Agent", UA_APP)
-        applyAuth(b)
+        applyAuth(b, url)
         b.header("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
         b.header("X-Requested-With", "com.JMComic3.app")
         b.header("Referer", "https://${DOMAINS.first()}/")

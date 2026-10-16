@@ -34,15 +34,31 @@ object WebViewProxy {
 
     private data class HostPort(val host: String, val port: Int)
 
+    /**
+     * 全局代理对象可能的类名，按新→旧顺序尝试。
+     *
+     * 两个类字段一致（host/port），只是不同 Android 版本用了不同名字：
+     * Q 起公开的是 android.net.ProxyInfo，更早的隐藏实现是 android.net.ProxyProperties。
+     */
+    private val PROXY_INFO_TYPES = listOf(
+        "android.net.ProxyInfo",
+        "android.net.ProxyProperties",
+    )
+
     fun apply(context: Context) {
         val value = ProxySettings.raw(context)
         val target = normalize(value)
-        if (target?.let { "${it.host}:${it.port}" } == applied) return
-        applied = target?.let { "${it.host}:${it.port}" }
-
+        val key = target?.let { "${it.host}:${it.port}" }
+        if (key == applied) return
+        // ⚠️ 只有**成功**才记住 applied（B-02）。原来先赋值再尝试，
+        // 失败后状态被记成「已应用」，用户改了设置再保存会被这里的相等判断挡掉，
+        // 看起来像「设置不生效且无法重试」。
         runCatching { applyInner(context, target) }
+            .onSuccess { applied = key }
             .onFailure {
-                // 设不了不是致命错：HTTP 链路仍可用，只是 WebView 兜底那条会不通
+                // 设不了不是致命错：HTTP 链路仍可用，只是 WebView 兜底那条会不通。
+                // 但必须留下可查的痕迹，否则用户只会觉得「代理没生效」。
+                applied = null
                 Log.w(TAG, "设置 WebView 代理失败：${it.message}")
             }
     }
@@ -59,10 +75,25 @@ object WebViewProxy {
             ?: return
         val clazz = Class.forName("android.net.ConnectivityManager")
 
-        val propsCls = Class.forName("android.net.ProxyProperties")
-        val ctor = propsCls.getDeclaredConstructor(
-            String::class.java, Int::class.javaPrimitiveType,
-        )
+        // ⚠️ 类型名随版本变化（B-02）：
+        //   · Android 10（Q）及以后：android.net.ProxyInfo
+        //   · 更早的隐藏实现叫 android.net.ProxyProperties
+        // 原来只找 ProxyProperties，在 Q+ 上 Class.forName 直接抛异常，
+        // 被 apply() 的 runCatching 吞成一条 warning —— 于是「代理配了、
+        // WebView 那条兜底链路仍然直连」，且用户看不到任何提示。
+        val found = PROXY_INFO_TYPES.firstNotNullOfOrNull { name ->
+            runCatching {
+                val c = Class.forName(name)
+                c to c.getDeclaredConstructor(
+                    String::class.java, Int::class.javaPrimitiveType,
+                )
+            }.getOrNull()
+        }
+        if (found == null) {
+            Log.w(TAG, "本机没有可用的全局代理类型，WebView 兜底链路将直连")
+            return
+        }
+        val (propsCls, ctor) = found
 
         // 传 null = 恢复直连（Kotlin 里显式写成 Any? 再传给反射方法）
         val props: Any? = target?.let { ctor.newInstance(it.host, it.port) }

@@ -82,6 +82,11 @@ object JmSession {
 
     fun clear(context: Context) {
         init(context)
+        // ⚠️ 这里必须用 commit 而不是 apply（Lint ApplySharedPref 是误报）：
+        // 退出登录后立刻杀进程/清后台的场景下，apply 是异步落盘，
+        // 可能还没写完就被系统回收 —— 下次启动登录态「又回来了」。
+        // 同步落盘换来的是「清除一定生效」，这里的调用频率也完全不敏感。
+        @Suppress("ApplySharedPref")
         prefs?.edit()?.clear()?.commit()
         AppLog.i("禁漫账号登录态已清除")
     }

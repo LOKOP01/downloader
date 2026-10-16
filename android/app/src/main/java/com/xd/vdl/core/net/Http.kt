@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit
  * `Http.getText` 都是独立冷会话 → 分享页/iteminfo/detail 三路永远拿不到数据。
  * 这里把响应里的 Cookie 留下来，下次请求自动带上。
  */
-private object SessionCookieJar : CookieJar {
+internal object SessionCookieJar : CookieJar {
     private val store = ConcurrentHashMap<String, MutableList<Cookie>>()
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
@@ -42,7 +42,10 @@ private object SessionCookieJar : CookieJar {
         val list = store.getOrPut(key) { mutableListOf() }
         synchronized(list) {
             cookies.forEach { c ->
-                list.removeAll { it.name == c.name && it.path == c.path }
+                // 同名 Cookie 的替换键必须含 domain：同一 host 上可能同时存在
+                // host-only（Domain 为空）与带 Domain 的两种同名 Cookie，
+                // 只按 name+path 去重会把其中一个挤掉。
+                list.removeAll { it.name == c.name && it.path == c.path && it.domain == c.domain }
                 list.add(c)
             }
             // 会话 Cookie 会过期，条目无限增长只是浪费内存；留一个上限即可
@@ -51,15 +54,30 @@ private object SessionCookieJar : CookieJar {
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
-        val list = store[url.host] ?: return emptyList()
         val now = System.currentTimeMillis()
-        return synchronized(list) {
-            list.removeAll { it.expiresAt < now }
-            list.toList()
+        // ⚠️ 必须**跨桶**查找并逐条用 OkHttp 的 matches 判定 Domain / Path / Secure。
+        //
+        // 原实现「只取 url.host 那一个桶、整桶返回」，有两个后果：
+        //  1. Path=/account 或带 Secure 的会话 Cookie 会被带到同 host 的其它路径、
+        //     甚至明文 HTTP 请求上 —— Cookie 自身的约束被完全绕过；
+        //  2. Domain Cookie 无法被子域命中（保存在 www 桶里，sub 查不到）。
+        // 分桶现在只用于控制条目上限，不再作为匹配依据。
+        val out = LinkedHashMap<String, Cookie>()
+        store.values.forEach { list ->
+            synchronized(list) {
+                list.removeAll { it.expiresAt < now }
+                list.forEach { cookie ->
+                    if (cookie.matches(url)) {
+                        // 同一个 Domain Cookie 可能被多个子域各存一份，按语义键去重
+                        out["${cookie.name}|${cookie.domain}|${cookie.path}"] = cookie
+                    }
+                }
+            }
         }
+        return out.values.toList()
     }
 
-    /** 解析失败重来时清掉（换作品 / 换账号场景） */
+    /** 退出登录 / 换账号时清掉进程内会话，避免旧会话被后续请求复用 */
     fun clear() = store.clear()
 }
 

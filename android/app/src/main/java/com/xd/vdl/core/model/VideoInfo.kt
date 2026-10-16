@@ -14,6 +14,16 @@ data class Quality(
     val sizeBytes: Long = 0L,
     val urlBackups: List<String> = emptyList(),
     val audioBackups: List<String> = emptyList(),
+    /**
+     * B 站 durl 的**分段**地址（低清兜底路：长视频会被切成多段 mp4）。
+     *
+     * 这些段是「同一路视频的前后片段」，必须按顺序拼接，**不是**互斥的清晰度。
+     * 原来把每段当成一个独立档位，用户选中后只下到第一段（其余丢失）。
+     * 非分段场景为空，其它平台不受影响。
+     */
+    val segmentUrls: List<String> = emptyList(),
+    /** 与 [segmentUrls] 一一对应的备用地址（同一段的其它 CDN）。 */
+    val segmentBackups: List<List<String>> = emptyList(),
 ) {
     val needMerge: Boolean get() = audioUrl.isNotEmpty()
 

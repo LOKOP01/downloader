@@ -2,4 +2,7 @@
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/launcher_v2_background" />
     <foreground android:drawable="@drawable/ic_launcher_v2_foreground" />
+    <!-- monochrome 供 Android 13+ 主题图标使用；v33 目录里也有同样的声明。
+         v26 补上是为了让主题图标在更多启动器上生效（Lint MonochromeLauncherIcon）。 -->
+    <monochrome android:drawable="@drawable/ic_launcher_v2_foreground" />
 </adaptive-icon>

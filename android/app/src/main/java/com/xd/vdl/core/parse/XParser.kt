@@ -136,7 +136,13 @@ object XParser : Parser {
         // 三条链路全挂时优先怀疑网络：X 在境内直连不通，而三条路（两个 HTTP
         // 域名 + WebView）用的是同一套网络出口，全挂说明根本没连上，
         // 而不是接口变了。提示要说清楚，否则用户会去反复换 Cookie。
-        val allNetwork = reasons.all { NET_ERRORS.any { it.contains(it, true) } }
+        // 注意：内层 lambda 的参数必须另起名字。这里原来写成 `any { it.contains(it, true) }`，
+        // 内层 it 会遮蔽外层的原因字符串，实际执行的是「列表元素是否包含自己」——
+        // 恒为 true，于是「三条链路全挂」时永远被判成网络问题，
+        // 连「Cookie 失效」「推文已删」都会被误导成「请填代理」。
+        val allNetwork = reasons.all { reason ->
+            NET_ERRORS.any { marker -> reason.contains(marker, ignoreCase = true) }
+        }
         if (allNetwork) {
             throw ParseException(
                 "连不上 X 的服务器（$detail）。X 在境内通常需要代理，" +
@@ -367,7 +373,7 @@ object XParser : Parser {
     // 公共部分
     // ------------------------------------------------------------------ //
 
-    private fun buildInfo(status: JSONObject, user: JSONObject?): VideoInfo {
+    internal fun buildInfo(status: JSONObject, user: JSONObject?): VideoInfo {
         val entities = status.optJSONObject("extended_entities")
             ?: status.optJSONObject("entities")
         val media = entities?.optJSONArray("media")
@@ -401,7 +407,11 @@ object XParser : Parser {
                     }
                 }
                 qualities = toQualities(mp4, durationMs)
-                break                      // 单视频推文是绝大多数场景，找到就停
+                // 视频优先：VideoInfo.isImage 只看 images 是否为空，
+                // 若此处保留前面收集的图片，混合推文会被路由到「图集」分支，
+                // 结果是视频被整个丢掉（只下图片）。所以拿到视频后清空图片。
+                images.clear()
+                break
             }
             if (url.isNotEmpty()) images.add(url)
         }

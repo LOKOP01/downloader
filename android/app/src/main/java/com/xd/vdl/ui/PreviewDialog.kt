@@ -43,6 +43,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -100,14 +101,20 @@ fun PreviewDialog(
 ) {
     val ctx = LocalContext.current
     val idx = startIndex.coerceIn(0, (uris.size - 1).coerceAtLeast(0))
+    // 用户翻页后，右上角「用其它应用打开」必须打开**当前这张**，而不是进来时的首张。
+    // Pager 的 currentPage 原本只存在于 ZoomPager 内部，顶层拿不到，
+    // 所以把「当前页」提升到这里，由 ZoomPager 通过 onPageChanged 回传。
+    var currentPage by remember(uris, idx) { mutableIntStateOf(idx) }
+    // 翻页后要重新判断媒体类型（同一图集里可能混着视频/压缩包）。
+    val activeUri = uris.getOrNull(currentPage.coerceIn(0, (uris.size - 1).coerceAtLeast(0)))
 
     // 类型判定放 IO 线程（会查 MediaStore 拿文件名）
     var resolved by remember(uris, idx) { mutableStateOf<com.xd.vdl.core.MediaKind?>(null) }
 
-    LaunchedEffect(uris, idx) {
+    LaunchedEffect(uris, activeUri) {
         resolved = null
-        resolved = if (uris.isEmpty()) null else withContext(Dispatchers.IO) {
-            MediaKindDetect.detect(ctx, uris[idx])
+        resolved = if (uris.isEmpty() || activeUri == null) null else withContext(Dispatchers.IO) {
+            MediaKindDetect.detect(ctx, activeUri)
         }
     }
 
@@ -140,7 +147,7 @@ fun PreviewDialog(
                     modifier = Modifier.weight(1f),
                 )
                 if (uris.isNotEmpty()) {
-                    IconButton(onClick = { openExternally(ctx, uris[idx]) }) {
+                    IconButton(onClick = { activeUri?.let { openExternally(ctx, it) } }) {
                         Icon(
                             Icons.AutoMirrored.Filled.OpenInNew,
                             contentDescription = "用其它应用打开",
@@ -160,9 +167,12 @@ fun PreviewDialog(
                 when {
                     uris.isEmpty() -> Hint("没有可预览的内容")
                     resolved == null -> CircularProgressIndicator(color = Color.White)
-                    resolved == com.xd.vdl.core.MediaKind.VIDEO -> VideoPreview(uris[idx])
-                    resolved == com.xd.vdl.core.MediaKind.IMAGE -> ImagePager(uris, idx)
-                    resolved == com.xd.vdl.core.MediaKind.ZIP -> ZipPreview(uris[idx])
+                    resolved == com.xd.vdl.core.MediaKind.VIDEO -> VideoPreview(activeUri.orEmpty())
+                    resolved == com.xd.vdl.core.MediaKind.IMAGE -> ImagePager(
+                        uris, idx,
+                        onPageChanged = { currentPage = it },
+                    )
+                    resolved == com.xd.vdl.core.MediaKind.ZIP -> ZipPreview(activeUri.orEmpty())
                     else -> Hint("这个文件不支持应用内预览\n（可用右上角按钮交给其它应用打开）")
                 }
             }
@@ -326,6 +336,7 @@ private fun ZoomPager(
     prevLabel: String,
     nextLabel: String,
     uriAt: (Int) -> String,
+    onPageChanged: (Int) -> Unit = {},
 ) {
     if (pageCount <= 0) {
         Hint("没有可翻看的页")
@@ -336,8 +347,12 @@ private fun ZoomPager(
     ) { pageCount }
     val scope = rememberCoroutineScope()
     val zoom = remember { ZoomState() }
-    // 换页就复位：否则翻回来会停在一个「滑不动」的放大页上
-    LaunchedEffect(pager.currentPage) { zoom.reset() }
+    // 换页就复位：否则翻回来会停在一个「滑不动」的放大页上。
+    // 同时把当前页回传给调用方（外部打开 / 媒体类型判定要用）。
+    LaunchedEffect(pager.currentPage) {
+        zoom.reset()
+        onPageChanged(pager.currentPage)
+    }
 
     Column(Modifier.fillMaxSize()) {
         Box(
@@ -402,13 +417,18 @@ private fun ZoomPager(
     }
 }
 @Composable
-private fun ImagePager(uris: List<String>, startIndex: Int) {
+private fun ImagePager(
+    uris: List<String>,
+    startIndex: Int,
+    onPageChanged: (Int) -> Unit = {},
+) {
     ZoomPager(
         pageCount = uris.size,
         startIndex = startIndex,
         prevLabel = "上一张",
         nextLabel = "下一张",
         uriAt = { uris[it] },
+        onPageChanged = onPageChanged,
     )
 }
 
