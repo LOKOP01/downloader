@@ -2,7 +2,7 @@
 """纯 WebP 转换逻辑；由调用方工作线程调用，不依赖 Qt、HTTP 或 CLI。
 
 逐帧解码，最多 1600 万画布像素、2 万帧、单输入 256 MiB；临时 PNG
-按每帧 4*像素+64 KiB 保守预留，总预算 2 GiB（不含编码后的 MP4）。
+临时 PNG 累计实际占用上限 2 GiB；逐帧检查磁盘空间，不按全部帧的未压缩体积拒绝。
 不把整段动画装入 Python 帧列表。取消粒度为单帧，编码时每 50ms 检查。
 """
 from __future__ import annotations
@@ -156,13 +156,14 @@ def _merge(sources, destination, background, crf, overwrite, cancel, progress_cb
     pixels = size[0] * size[1]
     if pixels > MAX_CANVAS_PIXELS:
         raise ConversionError("合并画布超过 1600 万像素限制")
-    disk_budget = total * (pixels * 4 + 65536)
-    if disk_budget > MAX_FRAME_DISK_BYTES:
-        raise ConversionError("临时帧预计超过 2 GiB 磁盘预算")
+    # PNG会压缩，未压缩像素数×总帧数不是实际磁盘用量，不能据此提前拒绝。
+    # 只给下一帧预留保守空间；总量按实际落盘字节逐帧限制。
+    frame_reserve = pixels * 4 + 65536
+    free_reserve = 16 * 1024 * 1024
     _report(progress_cb, 0, total, "正在准备逐帧转换 …")
     _check_cancel(cancel)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if shutil.disk_usage(destination.parent).free < disk_budget + 16 * 1024 * 1024:
+    if shutil.disk_usage(destination.parent).free < frame_reserve + free_reserve:
         raise ConversionError("输出磁盘空间不足以保存临时帧")
     with tempfile.TemporaryDirectory(prefix="webp-mp4-", dir=destination.parent) as folder:
         work = Path(folder)
@@ -175,6 +176,8 @@ def _merge(sources, destination, background, crf, overwrite, cancel, progress_cb
                 position = ((size[0] - image.width) // 2, (size[1] - image.height) // 2)
                 for index in range(count):
                     _check_cancel(cancel)
+                    if shutil.disk_usage(work).free < frame_reserve + free_reserve:
+                        raise ConversionError("输出磁盘剩余空间不足，已停止转换并清理临时帧")
                     image.seek(index)
                     with image.convert("RGBA") as rgba:
                         duration = int(image.info.get("duration", 100))
@@ -187,7 +190,7 @@ def _merge(sources, destination, background, crf, overwrite, cancel, progress_cb
                             canvas.save(work / name)
                     disk_bytes += (work / name).stat().st_size
                     if disk_bytes > MAX_FRAME_DISK_BYTES:
-                        raise ConversionError("临时帧超过 2 GiB 磁盘预算")
+                        raise ConversionError("临时PNG实际占用超过 2 GiB 上限，请减少合并文件数量或分段转换")
                     manifest.extend([f"file '{name}'", "option framerate 1000",
                                      f"duration {duration / 1000:.3f}"])
                     elapsed += duration

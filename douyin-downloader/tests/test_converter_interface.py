@@ -80,6 +80,29 @@ class ConverterInterfaceTest(unittest.TestCase):
         QTest.mouseClick(w.clearBtn, Qt.MouseButton.LeftButton)
         self.assertEqual(w.input_paths(), [])
 
+    def test_directory_picker_is_non_native_and_updates_path(self):
+        w = self.widget
+        w.outputEdit.setText(str(self.root / "not-created" / "converted"))
+        with patch.object(module.QFileDialog, "getExistingDirectory", return_value=str(self.root)) as picker:
+            QTest.mouseClick(w.outputBtn, Qt.MouseButton.LeftButton)
+        self.assertEqual(Path(w.outputEdit.text()), self.root)
+        self.assertTrue(picker.call_args.args[3] & module.QFileDialog.Option.DontUseNativeDialog)
+        self.assertEqual(Path(picker.call_args.args[2]), self.root)
+        self.assertIn("已设为", w.statusLabel.text())
+
+    def test_open_directory_reports_missing_empty_and_launch_failure(self):
+        w = self.widget
+        w.outputEdit.clear()
+        w.open_output_directory()
+        self.assertIn("请先选择", w.statusLabel.text())
+        w.outputEdit.setText(str(self.root / "missing"))
+        w.open_output_directory()
+        self.assertIn("尚不存在", w.statusLabel.text())
+        w.outputEdit.setText(str(self.root))
+        with patch.object(module.QDesktopServices, "openUrl", return_value=False), patch("app.core.system_open.subprocess.Popen", side_effect=PermissionError("blocked")):
+            w.open_output_directory()
+        self.assertIn("失败", w.statusLabel.text())
+
     def test_native_drop_and_file_multiselect(self):
         w = self.widget
         with patch.object(module.QFileDialog, "getOpenFileNames", return_value=(self.paths[:2], "")):
@@ -107,6 +130,22 @@ class ConverterInterfaceTest(unittest.TestCase):
                          Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
         QApplication.sendEvent(w.viewport(), drop)
         self.assertEqual(w.input_paths(), self.paths[:1])
+
+    def test_drop_inside_file_list_accepts_large_aggregate_without_reading(self):
+        w = self.widget
+        mime = QMimeData()
+        mime.setUrls([QUrl.fromLocalFile(p) for p in self.paths])
+        enter = QDragEnterEvent(QPoint(10, 10), Qt.DropAction.CopyAction, mime,
+                                Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        QApplication.sendEvent(w.inputList.viewport(), enter)
+        self.assertTrue(enter.isAccepted())
+        drop = QDropEvent(QPointF(10, 10), Qt.DropAction.CopyAction, mime,
+                         Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+        # 文件加入阶段不能打开/解码内容，总体积不应影响拖入。
+        with patch("PIL.Image.open", side_effect=AssertionError("drag must not decode images")):
+            QApplication.sendEvent(w.inputList.viewport(), drop)
+        self.assertTrue(drop.isAccepted())
+        self.assertEqual(w.input_paths(), self.paths)
 
     def test_batch_failure_continues_and_runs_off_gui_thread(self):
         calls = []

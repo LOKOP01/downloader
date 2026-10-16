@@ -1,5 +1,6 @@
 """原生、本地 WebP 转换页面；工作线程不持有任何 QWidget。"""
 import os
+import subprocess
 from pathlib import Path
 import threading
 
@@ -12,6 +13,7 @@ from qfluentwidgets import (CheckBox, ComboBox, LineEdit, PrimaryPushButton,
                             PushButton, ScrollArea, ListWidget)
 
 from ..core.ffmpeg import ffmpeg_path
+from ..core.system_open import open_local_path
 from ..core.webp_converter import ConversionCancelled, ConversionError, convert, merge_webps
 from . import design as D
 
@@ -165,6 +167,10 @@ class ConverterInterface(ScrollArea):
         self.previewBtn.clicked.connect(self.preview_selected)
         self.resultList.itemSelectionChanged.connect(self._update_preview)
         self.resultList.itemDoubleClicked.connect(self.preview_selected)
+        # 实际鼠标常落在列表/输入框子控件，不能只处理外层滚动视口。
+        for child in [self.content] + self.content.findChildren(QWidget):
+            child.setAcceptDrops(True)
+            child.installEventFilter(self)
 
     def input_paths(self):
         return [self.inputList.item(i).data(Qt.ItemDataRole.UserRole)
@@ -226,9 +232,22 @@ class ConverterInterface(ScrollArea):
             self.backgroundBtn.setText(f"背景色：{self._background}")
 
     def _choose_output(self):
-        path = QFileDialog.getExistingDirectory(self, "选择输出目录", self.outputEdit.text())
+        # 原生Windows选择器在受限启动环境可能不显示；Qt自绘对话框不依赖Shell。
+        text = self.outputEdit.text().strip()
+        initial = Path(text).expanduser() if text else Path(self.ctx.config.base_dir)
+        while not initial.is_dir() and initial.parent != initial:
+            initial = initial.parent
+        path = QFileDialog.getExistingDirectory(
+            self, "选择输出目录", str(initial),
+            QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontUseNativeDialog)
         if path:
             self.outputEdit.setText(path)
+            self.statusLabel.setText("输出目录已设为：" + path)
+
+    def eventFilter(self, watched, event):
+        if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove, QEvent.Type.Drop):
+            return self._handle_drag_event(event)
+        return super().eventFilter(watched, event)
 
     def _handle_drag_event(self, event):
         if event.type() in (QEvent.Type.DragEnter, QEvent.Type.DragMove):
@@ -349,17 +368,30 @@ class ConverterInterface(ScrollArea):
         self.previewBtn.setEnabled(bool(item and item.data(Qt.ItemDataRole.UserRole)))
 
     def open_output_directory(self):
-        path = Path(self.outputEdit.text()).expanduser().resolve()
-        if not path.is_dir():
-            self.statusLabel.setText("输出目录尚不存在，转换成功后再打开")
+        text = self.outputEdit.text().strip()
+        if not text:
+            self.statusLabel.setText("请先选择输出目录")
             return
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        try:
+            path = Path(text).expanduser().resolve()
+            if not path.is_dir():
+                self.statusLabel.setText("输出目录尚不存在，请先选择已有目录或完成一次转换：" + str(path))
+                return
+            opened = open_local_path(path, lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(path))))
+            self.statusLabel.setText(("已请求打开：" if opened else "系统未能打开目录，请复制路径到资源管理器：") + str(path))
+        except (OSError, ValueError) as error:
+            self.statusLabel.setText("打开目录失败：" + str(error))
 
     def preview_selected(self, *_):
         item = self.resultList.currentItem()
         path = item.data(Qt.ItemDataRole.UserRole) if item else None
         if path and Path(path).is_file():
-            QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            try:
+                opened = open_local_path(path, lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
+                if not opened:
+                    self.statusLabel.setText("系统未能打开视频，请复制路径到播放器：" + path)
+            except OSError as error:
+                self.statusLabel.setText("打开视频失败：" + str(error))
         elif path:
             self.statusLabel.setText("结果文件不存在或已被移动")
 

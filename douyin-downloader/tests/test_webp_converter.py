@@ -240,6 +240,24 @@ class WebpConverterTests(unittest.TestCase):
             convert(self.source, self.root / "bad.webp", ffmpeg=FFMPEG)
         self.assertFalse(self.out.exists())
 
+    def test_compressible_frames_not_rejected_by_raw_estimate(self):
+        # 原估算约23万字节，实际PNG仅几百字节；低于实际预算就应允许转换。
+        with patch.object(converter, "MAX_FRAME_DISK_BYTES", 5000):
+            result = self.convert()
+        self.assertEqual(result["frames"], 3)
+        self.assertAlmostEqual(duration_ms(self.out), 500, delta=1)
+
+    def test_free_space_drop_cleans_frames_and_preserves_output(self):
+        self.out.write_bytes(b"existing-output")
+        def progress(done, total, message):
+            if message.startswith("已处理"):
+                usage.return_value.free = 0
+        with patch.object(converter.shutil, "disk_usage") as usage:
+            usage.return_value.free = 10 * 1024**3
+            with self.assertRaisesRegex(ConversionError, "剩余空间不足"):
+                self.convert(overwrite=True, progress_cb=progress)
+        self.assertEqual(self.out.read_bytes(), b"existing-output")
+
     def test_pixel_frame_input_and_disk_budgets(self):
         for name, limit in [("MAX_CANVAS_PIXELS", 100), ("MAX_FRAMES", 2),
                             ("MAX_INPUT_BYTES", 1), ("MAX_FRAME_DISK_BYTES", 1)]:
