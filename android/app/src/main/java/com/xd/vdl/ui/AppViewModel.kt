@@ -25,6 +25,14 @@ class AppViewModel : ViewModel() {
     private val _homeRequest = MutableStateFlow(0)
     val homeRequest: StateFlow<Int> = _homeRequest.asStateFlow()
 
+    /** 自增即请求切到「书架」页（任务页「去书架」按钮用） */
+    private val _libraryRequest = MutableStateFlow(0)
+    val libraryRequest: StateFlow<Int> = _libraryRequest.asStateFlow()
+
+    fun openLibrary() {
+        _libraryRequest.value += 1
+    }
+
     fun acceptDetectedLink(text: String) {
         _link.value = text
         _info.value = null

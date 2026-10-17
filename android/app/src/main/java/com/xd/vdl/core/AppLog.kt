@@ -55,10 +55,14 @@ object AppLog {
         // 每次新建：SimpleDateFormat 非线程安全，共享实例在多线程下会产出错乱时间。
         val stamp = SimpleDateFormat("HH:mm:ss", Locale.CHINA).format(Date())
         val line = "$stamp $level  $msg"
-        when (level) {
-            "W" -> Log.w(TAG, msg)
-            "E" -> Log.e(TAG, msg)
-            else -> Log.i(TAG, msg)
+        // android.util.Log 在 JVM 单测里是抛 Stub! 的空实现；日志绝不该成为
+        // 「被测代码在测试环境里直接崩掉」的原因，所以这里吞掉失败。
+        runCatching {
+            when (level) {
+                "W" -> Log.w(TAG, msg)
+                "E" -> Log.e(TAG, msg)
+                else -> Log.i(TAG, msg)
+            }
         }
         synchronized(lock) {
             if (buf.size >= MAX) buf.removeFirst()

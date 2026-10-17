@@ -23,7 +23,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Inbox
+import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -90,7 +92,7 @@ fun TasksScreen(vm: AppViewModel) {
                 item { EmptyTasksCard() }
             } else {
                 items(tasks, key = { it.id }) { t ->
-                    TaskRow(t, onPreview = { preview = it })
+                    TaskRow(t, onPreview = { preview = it }, onOpenLibrary = { vm.openLibrary() })
                 }
             }
         }
@@ -209,7 +211,11 @@ private fun LogPanel(vm: AppViewModel) {
 }
 
 @Composable
-private fun TaskRow(t: DownloadTask, onPreview: (DownloadTask) -> Unit) {
+private fun TaskRow(
+    t: DownloadTask,
+    onPreview: (DownloadTask) -> Unit,
+    onOpenLibrary: () -> Unit,
+) {
     val scheme = MaterialTheme.colorScheme
     // 状态 → 图标 + 底座配色：一眼能分出「在下 / 好了 / 挂了」
     val (icon, container, content) = when (t.status) {
@@ -285,20 +291,41 @@ private fun TaskRow(t: DownloadTask, onPreview: (DownloadTask) -> Unit) {
         Spacer(Modifier.height(10.dp))
 
         when (t.status) {
-            TaskStatus.DONE -> Text(
-                buildString {
-                    append("已完成")
-                    append(when {
-                        t.platform == Platform.JMCOMIC -> " · 已保存到下载目录"
-                        t.savedUris.size > 1 -> " · 已保存到相册（${t.savedUris.size} 张）"
-                        else -> " · 已保存到相册"
-                    })
-                    if (t.note.isNotEmpty()) append("（${t.note}）")
-                    if (t.canPreview) append(" · 点卡片预览")
-                },
-                style = MaterialTheme.typography.bodySmall,
-                color = scheme.primary,
-            )
+            TaskStatus.DONE -> {
+                Text(
+                    buildString {
+                        append("已完成")
+                        append(
+                            when {
+                                t.platform == Platform.JMCOMIC -> " · 已保存到下载目录"
+                                t.savedUris.size > 1 -> " · 已保存到相册（${t.savedUris.size} 张）"
+                                else -> " · 已保存到相册"
+                            },
+                        )
+                        if (t.note.isNotEmpty()) append("（${t.note}）")
+                        if (t.canPreview) append(" · 点卡片预览")
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = scheme.primary,
+                )
+                // 下载完的漫画在书架上；这里给一个直达入口，省得用户自己翻 tab。
+                // 只对**漫画类**产物显示：视频下载完没必要往书架跳。
+                if (t.readableAsManga) {
+                    Spacer(Modifier.height(6.dp))
+                    Button(
+                        onClick = onOpenLibrary,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.MenuBook,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("去书架阅读（可离线）")
+                    }
+                }
+            }
 
             TaskStatus.FAILED -> Text(
                 "失败：${t.error}",

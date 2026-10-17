@@ -203,8 +203,9 @@ private fun ResultCard(vm: AppViewModel, activity: Activity, qIndex: Int) {
                         append(v.platform.label)
                         if (v.durationText.isNotEmpty()) append(" · ${v.durationText}")
                         if (v.platform == Platform.JMCOMIC) {
-                            if (v.jmChapterCount > 1) append(" · ${v.jmChapterCount} 章")
-                            if (v.jmPageCount > 0) append(" · ${v.jmPageCount} 页")
+                            // 页数是**各章合计**（见 JmPageCountText），别再只写「50 页」
+                            val pages = com.xd.vdl.core.parse.JmPageCountText.describe(v)
+                            if (pages.isNotEmpty()) append(" · " + pages)
                         } else if (v.isImage) {
                             append(" · ${v.images.size} 张图片")
                         }
@@ -233,8 +234,13 @@ private fun ResultCard(vm: AppViewModel, activity: Activity, qIndex: Int) {
             Text(
                 buildString {
                     append("将下载整本")
-                    if (v.jmChapterCount > 1) append(" ${v.jmChapterCount} 章")
-                    if (n > 0) append("，共约 $n 页")
+                    if (v.jmChapterCount > 1) {
+                        append(" " + v.jmChapterCount + " 章")
+                        // 多章时必须点明页数是合计，否则用户会拿单章页数去对「共 50 页」
+                        if (n > 0) append("，共约 " + n + " 页（各章合计）")
+                    } else if (n > 0) {
+                        append("，共约 " + n + " 页")
+                    }
                     append("，打包成 ")
                     append(if (v.jmId.isNotEmpty()) "${v.jmId}.zip" else "zip")
                     append(" 存到下载目录")

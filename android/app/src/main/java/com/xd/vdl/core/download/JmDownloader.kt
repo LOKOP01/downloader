@@ -160,15 +160,37 @@ object JmDownloader {
                 "共 ${chapters.size} 章",
         )
 
-        // 0) 先试官方「整本打包直链」：一次请求把整本拿回来，比逐张快一个数量级。
-        //    只有本子有这接口，而且要登录；取不到就静默往下走逐张，不算失败。
-        if (info.jmKind == "album" && JmDownloadMode.officialZipFirst(ctx)) {
-            if (tryOfficialZip(ctx, info, onProgress, onChapter, onZip)) return@withContext
-        }
-
-        // 1) 各章的图片文件名都拉出来（并发），这样总进度才是准的
+        // 1) 先把各章的图片文件名都拉出来（并发）。
+        //    ⚠️ 这一步必须**排在官方打包之前**：
+        //    ① 总进度要准；② 官方包只有和逐章页数对得上才能采信（见 JmPackCheck）。
         onChapter("正在获取目录…")
         val plan = fetchPlan(chapters)
+        val expected = plan.sumOf { it.size }
+
+        // ⚠️ 某章一张图都没取到时**必须留下痕迹**：原来这里是静默 `continue`，
+        // 等于整章凭空消失，用户只看到「解析 50 页、下载 25 页」却没有任何提示
+        // （本 bug 的另一半）。改成明确告警 + 记下章名，由末尾的对账一并汇报。
+        val emptyChapters = chapters.filterIndexed { i, _ -> plan[i].isEmpty() }
+        if (emptyChapters.isNotEmpty()) {
+            val names = emptyChapters.mapIndexed { i, c ->
+                "第 ${chapters.indexOf(c) + 1} 章（${c.second.ifEmpty { c.first }}）"
+            }
+            AppLog.w("禁漫有 " + emptyChapters.size + " 章没取到图片：" + names.joinToString("、"))
+            onChapter("注意：" + names.joinToString("、") + " 没有取到图片")
+            // 若**所有**章节都空，那就是真的没东西可下，必须失败
+            if (emptyChapters.size == chapters.size) {
+                throw IOException(
+                    "所有章节都没取到图片，可能是账号受限或该本子已不可访问；" +
+                        "请确认登录状态或稍后重试",
+                )
+            }
+        }
+
+        // 0) 再试官方「整本打包直链」：一次请求把整本拿回来，比逐张快一个数量级。
+        //    只有本子有这接口，而且要登录；取不到就静默往下走逐张，不算失败。
+        if (info.jmKind == "album" && JmDownloadMode.officialZipFirst(ctx)) {
+            if (tryOfficialZip(ctx, info, expected, onProgress, onChapter, onZip)) return@withContext
+        }
 
         // 2) 摊平成有序的待办列表：并发跑、顺序写
         val multiChapter = chapters.size > 1
@@ -176,7 +198,6 @@ object JmDownloader {
         for ((ci, chapter) in chapters.withIndex()) {
             val (cid, cname) = chapter
             val files = plan[ci]
-            if (files.isEmpty()) continue
             val scrambleId = scrambleOf(info, cid)
             // 多章时按章建子目录；单章平铺
             val dir = if (multiChapter) {
@@ -286,6 +307,7 @@ object JmDownloader {
     private suspend fun tryOfficialZip(
         ctx: Context,
         info: VideoInfo,
+        expected: Int,
         onProgress: (done: Int, total: Int) -> Unit,
         onChapter: (text: String) -> Unit,
         onZip: (file: File, entryCount: Int) -> Unit,
@@ -330,6 +352,14 @@ object JmDownloader {
             if (entries <= 0) {
                 // 可能是一段 HTML 错误页，也可能是空包 —— 都不能当成品
                 AppLog.w("禁漫打包直链拿到的不是有效压缩包（${zip.length()} 字节），改为逐张下载")
+                zip.delete()
+                false
+            } else if (!JmPackCheck.coversAllChapters(entries, expected)) {
+                // ⚠️ 关键：多章本子里 `/album_download_2` 按首章打包时只含第一章，
+                // 直接采信就会「解析 50 页、下载 25 页」且毫无提示（真实缺陷）。
+                // 这里丢弃官方包，回退逐张下载，保证页数与章节完整。
+                AppLog.w("禁漫" + JmPackCheck.shortfallReason(entries, expected))
+                onChapter("官方打包只有 " + entries + "/" + expected + " 张，改为逐张下载…")
                 zip.delete()
                 false
             } else {

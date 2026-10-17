@@ -39,4 +39,21 @@ data class DownloadTask(
     /** 已完成且有东西可预览 */
     val canPreview: Boolean
         get() = status == TaskStatus.DONE && previewUris.isNotEmpty()
+
+    /**
+     * 这个产物是否属于「可以进书架离线阅读」的漫画。
+     *
+     * 判定必须**保守**，两个条件缺一不可：
+     *  1. 下载真正完成（[TaskStatus.DONE]）—— 失败、取消、下载中一律不算，
+     *     否则书架上会出现点开就报错的假记录；
+     *  2. **确实拿到了产物**（[previewUris] 非空）—— 只看平台是不够的：
+     *     禁漫任务也可能在导出失败时走到完成分支，此时指向书架的按钮会把人送进
+     *     一个空书架。
+     *
+     * 非禁漫平台还要求产物是多张图片（[savedUris] 非空）：视频下载完没必要进书架。
+     */
+    val readableAsManga: Boolean
+        get() = status == TaskStatus.DONE &&
+            previewUris.isNotEmpty() &&
+            (platform == Platform.JMCOMIC || savedUris.isNotEmpty())
 }

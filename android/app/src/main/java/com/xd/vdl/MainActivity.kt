@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -39,6 +40,7 @@ import com.xd.vdl.core.Platform
 import com.xd.vdl.core.net.CookieStore
 import com.xd.vdl.ui.AppViewModel
 import com.xd.vdl.ui.HomeScreen
+import com.xd.vdl.ui.LibraryScreen
 import com.xd.vdl.ui.LoginDialog
 import com.xd.vdl.ui.SettingsScreen
 import com.xd.vdl.ui.TasksScreen
@@ -68,6 +70,8 @@ class MainActivity : ComponentActivity() {
         AppLog.setup(java.io.File(filesDir, "logs"))
         CookieStore.init(this)
         com.xd.vdl.core.SaveSettings.init(this)
+        // 本地漫画书架的加载是异步的（要读 JSON），这里只挂上，界面用 awaitLoaded 等
+        com.xd.vdl.core.manga.MangaLibrary.init(this)
         com.xd.vdl.core.parse.JmSession.init(this)
         // 代理设置要读 SharedPreferences，Http 的 client 构造时就需要 Context。
         // 放在这里（而不是各处懒初始化）保证 WebView 兜底那条路也用得上代理。
@@ -214,6 +218,9 @@ private fun AppRoot(vm: AppViewModel, activity: Activity) {
     var tab by remember { mutableStateOf(0) }
     val homeRequest by vm.homeRequest.collectAsState()
     LaunchedEffect(homeRequest) { tab = 0 }
+    // 任务页「去书架」：把用户送到本地漫画 tab（而不是让他自己找）
+    val libraryRequest by vm.libraryRequest.collectAsState()
+    LaunchedEffect(libraryRequest) { if (libraryRequest > 0) tab = 2 }
     var loginPlatform by remember { mutableStateOf<Platform?>(null) }
     val message by vm.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
@@ -244,6 +251,12 @@ private fun AppRoot(vm: AppViewModel, activity: Activity) {
                 NavigationBarItem(
                     selected = tab == 2,
                     onClick = { tab = 2 },
+                    icon = { Icon(Icons.Filled.Collections, contentDescription = null) },
+                    label = { Text("书架") },
+                )
+                NavigationBarItem(
+                    selected = tab == 3,
+                    onClick = { tab = 3 },
                     icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                     label = { Text("设置") },
                 )
@@ -258,6 +271,7 @@ private fun AppRoot(vm: AppViewModel, activity: Activity) {
             when (tab) {
                 0 -> HomeScreen(vm, activity)
                 1 -> TasksScreen(vm)
+                2 -> LibraryScreen(vm)
                 else -> SettingsScreen(vm, onEditCookie = { loginPlatform = it })
             }
         }
