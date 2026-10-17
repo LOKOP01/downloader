@@ -28,37 +28,91 @@ DEFAULT_CONFIG = {
 
 _lock = threading.Lock()
 
+# 取值只能是 int 的配置项：JSON 里手改出 "abc" 这类值时回退默认值，
+# 避免 main_window 构造期 int() 抛 ValueError 直接打断启动。
+_INT_KEYS = {"max_concurrent": 3, "segment_connections": 8, "timeout": 15}
+# segment_connections 的合法区间（下载器按 1-32 使用）
+_CONN_RANGE = (1, 32)
+
 
 def default_download_path() -> str:
     return os.path.join(os.path.expanduser("~"), "Downloads", "DouyinDownloader")
+
+
+def _coerce_int(key: str, value) -> int:
+    """把配置值收敛成合法 int；坏值回退默认值，不抛异常"""
+    default = _INT_KEYS[key]
+    try:
+        num = int(value)
+    except (TypeError, ValueError):
+        return default
+    if key == "segment_connections":
+        return max(_CONN_RANGE[0], min(_CONN_RANGE[1], num))
+    if key == "max_concurrent":
+        return max(1, min(16, num))
+    if key == "timeout":
+        return max(1, num)
+    return num
 
 
 class Config:
     def __init__(self, path: str):
         self.path = path
         self._data = dict(DEFAULT_CONFIG)
+        # 上次 load 是否读到了「无法解析」的文件：损坏时备份原文件，
+        # 既不让 save() 静默覆盖掉用户的 Cookie，也不让下次启动继续报错。
+        self.load_error = ""
         self.load()
 
     def load(self):
+        self.load_error = ""
         with _lock:
             if os.path.exists(self.path):
                 try:
                     with open(self.path, "r", encoding="utf-8") as f:
                         saved = json.load(f)
-                    self._data.update({k: v for k, v in saved.items() if k in DEFAULT_CONFIG})
-                except (ValueError, OSError):
-                    pass
+                except (ValueError, OSError) as e:
+                    # 顶层不是 JSON 对象（[]、null、数字、字符串）时 .items() 会抛
+                    # AttributeError，此前没被 except 覆盖，导致 Config 构造失败、
+                    # 整个程序起不来。这里统一兜住并备份坏文件。
+                    self.load_error = f"{type(e).__name__}: {e}"
+                    self._backup_corrupt()
+                else:
+                    if isinstance(saved, dict):
+                        self._data.update({k: v for k, v in saved.items()
+                                           if k in DEFAULT_CONFIG})
+                    else:
+                        self.load_error = f"配置根节点应为对象，实际是 {type(saved).__name__}"
+                        self._backup_corrupt()
+        for key in _INT_KEYS:
+            self._data[key] = _coerce_int(key, self._data.get(key, DEFAULT_CONFIG[key]))
         if not self._data.get("download_path"):
             self._data["download_path"] = default_download_path()
 
+    def _backup_corrupt(self):
+        """把读不懂的 config.json 改名留档，避免随后的 save() 把它整体覆盖"""
+        try:
+            backup = f"{self.path}.corrupt"
+            os.replace(self.path, backup)
+        except OSError:
+            pass
+
     def save(self):
-        # self._data 在锁内读取：避免与 set() 并发时序列化到"写了一半"的字典
+        # self._data 在锁内序列化：避免与 set() 并发时写出"写了一半"的字典。
+        # 先写临时文件再 os.replace：进程被杀 / 磁盘满时不会留下半截 JSON。
         with _lock:
             try:
-                os.makedirs(os.path.dirname(self.path), exist_ok=True)
-                with open(self.path, "w", encoding="utf-8") as f:
-                    json.dump(self._data, f, ensure_ascii=False, indent=2)
-            except OSError:
+                payload = json.dumps(self._data, ensure_ascii=False, indent=2)
+                parent = os.path.dirname(self.path)
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                tmp = f"{self.path}.tmp"
+                with open(tmp, "w", encoding="utf-8") as f:
+                    f.write(payload)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp, self.path)
+            except (OSError, TypeError, ValueError):
                 pass
 
     def update(self, values: dict):

@@ -6,8 +6,12 @@ import urllib.parse
 # 从一段文本（分享文案 / 剪贴板内容）里提取首个 http(s) 链接
 URL_PATTERN = re.compile(r'https?://[^\s，。"\']+', re.I)
 
-# 各平台的域名特征（子串匹配即可覆盖 www / api / cdn 等前缀）
-DOUYIN_HOSTS = ("douyin.com", "iesdouyin.com")
+# 各平台的域名特征。匹配规则见 host_matches：带点的按子域后缀比对，
+# 不带点的主干（instagram / xhscdn）按域名标签边界比对。
+# 视频/图片 CDN 用的是 douyinvod.com / douyinpic.com，与主站域名不同根，
+# 必须显式列出：旧实现靠 `"douyin.com" in host` 的子串匹配侥幸覆盖了它们，
+# 换成按标签边界匹配后（见 _host_is）就得写全，否则不带 Referer 会 403。
+DOUYIN_HOSTS = ("douyin.com", "iesdouyin.com", "douyinvod.com", "douyinpic.com")
 X_HOSTS = ("twimg.com", "x.com", "twitter.com", "t.co")
 INSTAGRAM_HOSTS = ("instagram", "cdninstagram", "fbcdn")
 BILIBILI_HOSTS = ("bilibili", "bilivideo", "hdslb", "akamaized", "b23.tv")
@@ -43,13 +47,69 @@ COOKIE_PLATFORMS = ("instagram", "bilibili")
 
 def host_of(url: str) -> str:
     """取 URL 的主机名（小写，不带端口）"""
-    return urllib.parse.urlparse(url or "").netloc.lower()
+    netloc = urllib.parse.urlparse(url or "").netloc.lower()
+    # 去掉 userinfo（http://user:pass@host/）与端口，只留纯主机名
+    netloc = netloc.rsplit("@", 1)[-1]
+    if netloc.startswith("["):          # IPv6 字面量 [::1]:8080
+        return netloc.split("]", 1)[0] + "]"
+    return netloc.split(":", 1)[0]
+
+
+# 主干型关键字后面允许出现的官方 TLD。用白名单而不是黑名单，
+# 这样 instagram.com.evil.cn（主干后面跟 com 再接恶意域）会被拒。
+_OFFICIAL_TLDS = {"com", "tv", "me", "net", "org", "vip"}
+
+
+def _host_is(host: str, keyword: str) -> bool:
+    """host 是否命中域名关键字（按域名标签边界匹配，不做裸子串判断）
+
+    旧实现是 `keyword in host`，于是 `douyin.com.evil.cn`、
+    `evilbilibili.com`、`notx.com` 都能被认成官方站点，进而把用户 Cookie
+    发到不可控的域名。现在分两类：
+
+    - 带点的关键字是完整域（douyin.com）：host 必须等于它，或是它的子域
+      （www.douyin.com / v.douyin.com），`douyin.com.evil.cn` 不命中。
+    - 不带点的关键字是域名主干（instagram / xhscdn / bilivideo）：host 中
+      某个标签必须以主干结尾，且该标签之后紧接官方 TLD、TLD 之后不能再
+      有别的域。于是 www.instagram.com、scontent.cdninstagram.com 命中，
+      而 instagram.com.evil.cn、evilbilibili.com、myxiaohongshu.com 不命中。
+    """
+    if not host or not keyword:
+        return False
+    kw = keyword.lower().strip().strip(".")
+    if not kw:
+        return False
+    if host == kw:
+        return True
+    if "." in kw:
+        # 完整域名：host 必须以 .kw 结尾（www.douyin.com 命中，
+        # douyin.com.evil.cn 不命中）
+        return host.endswith("." + kw)
+    # 主干型关键字（instagram / xhscdn / bilivideo）：在除 TLD 外的各段里找
+    # 以主干结尾的标签，并要求它后面紧跟官方 TLD。于是
+    #   www.instagram.com / scontent.cdninstagram.com -> 命中
+    #   instagram.com.evil.cn -> 不命中（主干的下一段是 com，但 com 之后
+    #     还有恶意域，说明真实注册域是 evil.cn）
+    labels = host.split(".")
+    if len(labels) < 2:
+        return False
+    for i in range(len(labels) - 1):
+        if labels[i] == kw or labels[i].endswith(kw):
+            # 首段必须与主干「等长或带官方前缀」，否则 evilbilibili.com、
+            # myxiaohongshu.com 这类拼接的钓鱼域名会被放行。
+            # 允许的前缀都是官方 CDN 子域（cdninstagram / sns-img-hw 等由
+            # 带点关键字覆盖，这里只需放行首段本身）。
+            if i == 0 and labels[i] != kw:
+                return False
+            # 主干后面必须是官方 TLD，且 TLD 之后不能再有别的域
+            return labels[i + 1] in _OFFICIAL_TLDS and i + 2 == len(labels)
+    return False
 
 
 def host_matches(url: str, keywords) -> bool:
-    """URL 主机名是否命中任一关键字"""
+    """URL 主机名是否命中任一关键字（按域名标签边界匹配）"""
     host = host_of(url)
-    return any(k in host for k in keywords)
+    return any(_host_is(host, k) for k in keywords)
 
 
 def platform_of_host(url: str) -> str:

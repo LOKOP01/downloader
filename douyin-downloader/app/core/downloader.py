@@ -221,6 +221,22 @@ def _resource_id(headers) -> str:
     return ""
 
 
+def _body_definitely_complete(resp) -> bool:
+    """响应体是否「可以确定已经完整收完」
+
+    只在调用方拿不到总长度（无 Content-Length、探测也不明）时用于兜底判定：
+    - 有 Content-Length：长度已知，完整性交给上面的字节比对；
+    - Transfer-Encoding 含 chunked：requests 只有在读到终止块时才会正常结束，
+      提前断开会抛 ChunkedEncodingError（不会走到这里），故视为完整；
+    - 两者都没有：靠连接关闭界定 body，提前断开与正常结束无法区分 —— 不可信。
+    """
+    headers = getattr(resp, "headers", None) or {}
+    if (headers.get("Content-Length") or "").strip():
+        return True
+    encoding = (headers.get("Transfer-Encoding") or "").lower()
+    return "chunked" in encoding
+
+
 def _should_reconnect_slow_chunk(got: int, length: int, elapsed: float,
                                  best: float, budget_available: bool) -> bool:
     """只重排明显落后且继续下载还需较久的分块。"""
@@ -1055,6 +1071,17 @@ class DownloadManager(QObject):
         #    兜底：total 未知且字节数为 0 → 判失败，别把空文件当成品。
         if total <= 0 and downloaded <= 0:
             raise IncompleteDownload("服务端未返回任何数据（且未声明长度），已放弃")
+        # ③ 既没有 Content-Length、探测也没拿到总长：传输层无从判断完整性。
+        #    实测「服务端发 500000 字节后直接 close、不声明长度」时 iter_content
+        #    不会抛异常，旧实现把半截文件当成品落盘并标「已完成」。这种响应
+        #    只能靠实体是否完整收尾来判：Content-Length 在、或给了 chunked
+        #    终止块，二者都没有时视为不可信，明确失败而不是静默产出坏文件。
+        if total <= 0 and downloaded > 0 and not _body_definitely_complete(resp):
+            log.warning("响应未声明长度且连接提前关闭：%s 只拿到 %s 字节",
+                        os.path.basename(tmp_path), downloaded)
+            raise IncompleteDownload(
+                f"服务端未声明文件长度且连接提前中断（已收到 {downloaded} 字节），"
+                "无法确认文件完整，已放弃本次下载")
         return downloaded
 
 
