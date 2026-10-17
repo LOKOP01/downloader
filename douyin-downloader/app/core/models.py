@@ -125,6 +125,7 @@ class DownloadTaskInfo:
     speed: float = 0.0            # bytes/s
     status: str = "等待中"        # 等待中/下载中/已完成/失败/已取消
     error: str = ""
+    cover_url: str = ""          # 解析出的封面地址（视频库自动入库用，可空）
 
     @property
     def percent(self) -> int:

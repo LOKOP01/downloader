@@ -15,6 +15,7 @@ from .view.batch_interface import BatchInterface
 from .view.home_interface import HomeInterface
 from .view.converter_interface import ConverterInterface
 from .view.manga_interface import MangaInterface
+from .view.video_interface import VideoInterface
 from .view.perf import tune_scroll_areas
 from .view.setting_interface import SettingInterface
 from .view.tab_bar import AppTabBar
@@ -73,6 +74,7 @@ class MainWindow(FluentWindow):
         self.batchInterface = BatchInterface(self.ctx, self)
         self.taskInterface = TaskInterface(self.ctx, self)
         self.mangaInterface = MangaInterface(self.ctx, self)
+        self.videoInterface = VideoInterface(self.ctx, self)
         self.converterInterface = ConverterInterface(self.ctx, self)
         self.settingInterface = SettingInterface(self.ctx, self)
         self.taskInterface.read_manga.connect(self._read_manga)
@@ -92,6 +94,7 @@ class MainWindow(FluentWindow):
         self.addSubInterface(self.batchInterface, FIF.PEOPLE, "批量下载")
         self.addSubInterface(self.taskInterface, FIF.DOWNLOAD, "下载任务")
         self.addSubInterface(self.mangaInterface, FIF.PHOTO, "漫画阅读器")
+        self.addSubInterface(self.videoInterface, FIF.MOVIE, "本地视频")
         self.addSubInterface(self.converterInterface, FIF.VIDEO, "WebP 转 MP4")
         self.addSubInterface(self.settingInterface, FIF.SETTING, "设置")
 
@@ -103,11 +106,12 @@ class MainWindow(FluentWindow):
         self.hBoxLayout.removeWidget(self.navigationInterface)
 
         self._pages = [self.homeInterface, self.batchInterface,
-                       self.taskInterface, self.mangaInterface, self.converterInterface, self.settingInterface]
+                       self.taskInterface, self.mangaInterface, self.videoInterface,
+                       self.converterInterface, self.settingInterface]
         self.tabBar = AppTabBar(
             [("home", "视频解析"), ("batch", "批量下载"),
              ("task", "下载任务"), ("manga", "漫画阅读器"),
-             ("converter", "WebP 转 MP4"), ("setting", "设置")],
+             ("video", "本地视频"), ("converter", "WebP 转 MP4"), ("setting", "设置")],
             app_name="视频下载器", parent=self)
 
         # widgetLayout 原本是 [stackedWidget] 的横向布局，改成纵向叠一层标签栏。
@@ -140,6 +144,7 @@ class MainWindow(FluentWindow):
         super().closeEvent(event)
         if event.isAccepted():
             self.mangaInterface.shutdown()
+            self.videoInterface.shutdown()
             self.converterInterface.shutdown()
 
     def _on_tab_changed(self, index: int):
@@ -198,7 +203,8 @@ class MainWindow(FluentWindow):
         # 卡片不用单独改：它是 rgba 白叠加在页面底上的，页面底一对，
         # 卡片自然落到目标深度（#09090B 上叠 5% 白 ≈ #151515，接近 #18181B）。
         for itf in (self.homeInterface, self.batchInterface,
-                    self.taskInterface, self.mangaInterface, self.converterInterface, self.settingInterface):
+                    self.taskInterface, self.mangaInterface, self.videoInterface,
+                    self.converterInterface, self.settingInterface):
             name = itf.objectName()
             D.theme_qss(itf,
                         f"#{name}{{background:{D.BG_PRIMARY[0]};}}",

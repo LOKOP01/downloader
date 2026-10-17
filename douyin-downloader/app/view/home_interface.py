@@ -470,7 +470,9 @@ class HomeInterface(ScrollArea):
                 # 同档备用 CDN / 音频备用地址一起交给下载器，避免主地址挂了卡住
                 audio_map=info.audio_map,
                 url_backups=info.url_backups,
-                audio_backups=info.audio_backups)
+                audio_backups=info.audio_backups,
+                # 封面地址带给视频库：入库时即使没开"同时下载封面"也能拿到封面
+                cover_url=info.cover_url)
             if cfg.get("auto_copy_file"):
                 self._copy_on_done[task.task_id] = path
             size = info.size_of(url)

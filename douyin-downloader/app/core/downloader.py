@@ -278,11 +278,11 @@ class DownloadManager(QObject):
             fallbacks: list = None, cookies: str = "",
             audio_url: str = "", quality: str = "",
             audio_map: dict = None, url_backups: dict = None,
-            audio_backups: dict = None) -> DownloadTaskInfo:
+            audio_backups: dict = None, cover_url: str = "") -> DownloadTaskInfo:
         save_path = self._unique_path(save_path)
         info = DownloadTaskInfo(task_id=uuid.uuid4().hex[:12], url=url,
                                 save_path=save_path, name=name,
-                                quality=quality or "")
+                                quality=quality or "", cover_url=cover_url or "")
         plan = self._build_plan(url, fallbacks, audio_url, audio_map,
                                 url_backups, audio_backups)
         with self._lock:

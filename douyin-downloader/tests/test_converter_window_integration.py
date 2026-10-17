@@ -27,9 +27,9 @@ class ConverterWindowIntegrationTest(unittest.TestCase):
    try:
     window.show();page=window.converterInterface;window.switchTo(page)
     self.app.processEvents()
-    self.assertEqual(window.tabBar.count(),6)
+    self.assertEqual(window.tabBar.count(),7)
     self.assertLessEqual(window.height(),720)
-    self.assertIs(window._pages[4],page)
+    self.assertIs(window._pages[5],page)
     self.assertEqual(window.stackedWidget.currentWidget(),page)
     page.add_files([str(one),str(two)])
     page.outputEdit.setText(str(root/'outputs'))
