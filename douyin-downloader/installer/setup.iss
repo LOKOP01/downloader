@@ -3,7 +3,7 @@
 ; 产物：dist\视频下载器-<version>-setup.exe
 
 #define MyAppName "视频下载器"
-#define MyAppVersion "1.8.10.41"
+#define MyAppVersion "1.8.10.42"
 #define MyAppPublisher "个人项目"
 #define MyAppExeName "视频下载器.exe"
 ; 测试安装可用编译参数指定独立AppId，避免碰用户现有安装/卸载注册信息。
@@ -18,9 +18,9 @@ AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 AppCopyright=仅供个人学习与备份使用
-VersionInfoVersion=1.8.10.41
+VersionInfoVersion=1.8.10.42
 VersionInfoProductName={#MyAppName}
-VersionInfoProductVersion=1.8.10.41
+VersionInfoProductVersion=1.8.10.42
 VersionInfoDescription={#MyAppName} 安装程序
 VersionInfoCopyright=仅供个人学习与备份使用
 DefaultDirName={localappdata}\Programs\{#MyAppName}
@@ -65,7 +65,12 @@ Name: "compact"; Description: "精简安装（不含 ffmpeg，可稍后在设置
 Name: "custom"; Description: "自定义"; Flags: iscustom
 
 [Files]
+; 文件夹版（onedir）：exe 必须与 _internal 一起安装，不能只装单个 exe。
+; 之所以不发布单文件版：单文件启动时要把自身解包到系统 TEMP，
+; 在 TEMP 受限/被杀软拦截的机器上会直接退出（实测退出码 -1，旧版同样如此）；
+; 文件夹版用程序目录的 .runtime-temp，不依赖系统 TEMP。
 Source: "..\dist\{#MyAppVersion}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion; Components: main
+Source: "..\dist\{#MyAppVersion}\_internal\*"; DestDir: "{app}\_internal"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: main
 Source: "..\dist\tools\ffmpeg.exe"; DestDir: "{app}\tools"; Flags: ignoreversion skipifsourcedoesntexist; Components: ffmpeg
 
 [Icons]
